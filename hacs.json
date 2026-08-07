@@ -1,0 +1,9 @@
+{
+  "name": "LocalVolts v2",
+  "hacs": "2.0.1",
+  "homeassistant": "2024.1.0",
+  "render_readme": true,
+  "zip_release": true,
+  "filename": "localvolts_v2.zip",
+  "hide_default_branch": false
+}

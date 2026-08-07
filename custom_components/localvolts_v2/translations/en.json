@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "LocalVolts v2",
+        "description": "Enter the LocalVolts v2 API credentials and the authorized NMI to monitor.",
+        "data": {
+          "api_key": "v2 API Key",
+          "partner_id": "v2 Partner ID",
+          "nmi": "NMI",
+          "v1_api_key": "Optional v1 API Key",
+          "v1_partner_id": "Optional v1 Partner ID"
+        },
+        "data_description": {
+          "api_key": "Enter the API key. The required apikey prefix is added automatically if omitted.",
+          "partner_id": "The LocalVolts partner ID paired with this API key.",
+          "nmi": "The NMI authorized for this API key and partner ID.",
+          "v1_api_key": "Optional and separate from v2. Used only for v1 comparison data.",
+          "v1_partner_id": "Optional v1 partner ID paired with the v1 API key."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to LocalVolts. Check network access and try again.",
+      "invalid_auth": "LocalVolts rejected the API key, partner ID, or NMI authorization.",
+      "unknown": "An unexpected error occurred. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This NMI is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "LocalVolts v2 Options",
+        "description": "Set how often LocalVolts data is updated. Intervals are five minutes, and values below 60 seconds are not accepted.",
+        "data": {
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    }
+  }
+}

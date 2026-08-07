@@ -1,0 +1,43 @@
+refresh_forecast:
+  name: Refresh forecast
+  description: Immediately fetch fresh LocalVolts interval and market statistics data for one or all configured NMIs.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional LocalVolts v2 configuration entry ID. Omit to refresh all configured NMIs.
+      required: false
+      selector:
+        text:
+
+get_cheapest_window:
+  name: Get cheapest forecast window
+  description: Returns the lowest-average contiguous LocalVolts forecast window for the requested Buy or Sell direction.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional LocalVolts v2 configuration entry ID. Omit to calculate a result for every loaded entry.
+      required: false
+      selector:
+        text:
+    direction:
+      name: Direction
+      description: Select Buy for import rates or Sell for export rates.
+      required: true
+      selector:
+        select:
+          options:
+            - Buy
+            - Sell
+          multiple: false
+          custom_value: false
+    hours:
+      name: Window hours
+      description: Requested contiguous forecast duration in hours. Defaults to 2.
+      required: false
+      default: 2
+      selector:
+        number:
+          min: 0.083333
+          max: 24
+          step: 0.083333
+          mode: box

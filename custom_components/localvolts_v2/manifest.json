@@ -1,0 +1,13 @@
+{
+  "domain": "localvolts_v2",
+  "name": "LocalVolts v2",
+  "codeowners": ["@purcell-lab"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/purcell-lab/localvolts_v2",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/purcell-lab/localvolts_v2/issues",
+  "loggers": ["localvolts_v2"],
+  "requirements": ["matplotlib>=3.7.0"],
+  "version": "1.0.0"
+}
