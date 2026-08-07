@@ -6,7 +6,13 @@ A Home Assistant custom integration for LocalVolts interval pricing, costs, P2P 
 
 ## Installation
 
-### HACS custom repository
+### One click, using a My Home Assistant link
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=purcell-lab&repository=localvolts_v2&category=integration)
+
+Selecting the badge above opens this repository directly in HACS on your own Home Assistant instance, so you can skip the manual custom repository steps. Then select **Download**, restart Home Assistant, and add the integration from **Settings > Devices & services**.
+
+### HACS custom repository, added manually
 
 1. In HACS, open the three-dot menu and choose **Custom repositories**.
 2. Add `https://github.com/purcell-lab/localvolts_v2` with category **Integration**.
