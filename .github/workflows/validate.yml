@@ -22,7 +22,6 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v
-        continue-on-error: true
 
       - name: Install mypy
         run: pip install mypy homeassistant-stubs

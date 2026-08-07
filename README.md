@@ -106,6 +106,17 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - `spotCost` is unreliable on settled `Exp` and `Act` intervals. The supplied specification observed it inflated by about 1050 times. Treat it as forecast-only unless independently reconciled.
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
 
+## Development
+
+Run the test suite from the repository root:
+
+```bash
+pip install pytest pytest-asyncio pytest-homeassistant-custom-component "matplotlib>=3.7.0" pyyaml
+pytest tests/ -v
+```
+
+The suite covers the config flow paths, coordinator behaviour including the stale data fallback and optional v1 handling, and sensor state and attributes. It passes against Home Assistant 2026.8.0. It does not exercise a live Home Assistant instance with real LocalVolts credentials, so verify the integration in your own environment before relying on it.
+
 ## Branding
 
 The icon and logo in `custom_components/localvolts_v2/brand/` are generic energy themed marks created for this repository so that HACS brand validation passes. They are not official LocalVolts branding. Home Assistant only shows integration icons in its own UI for integrations listed in the [Home Assistant brands repository](https://github.com/home-assistant/brands), so a separate submission there is needed for in-app icons.
