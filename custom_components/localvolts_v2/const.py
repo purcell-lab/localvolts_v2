@@ -20,6 +20,11 @@ API_MARKET_STATS_PATH = "/v2/market/stats"
 API_VERSION_PATH = "/version"
 
 DEVICE_MANUFACTURER = "LocalVolts"
+
+# The device name no longer carries the NMI. It appears in every entity_id
+# generated from this device, and a meter identifier is not something to leak
+# into screenshots or shared dashboards.
+DEVICE_NAME = "LocalVolts v2"
 DEVICE_MODEL = "v2 Customer Interval API"
 DEVICE_CONFIGURATION_URL = "https://api2.localvolts.com"
 

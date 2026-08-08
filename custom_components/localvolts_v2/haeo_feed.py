@@ -44,6 +44,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DEVICE_CONFIGURATION_URL,
+    DEVICE_NAME,
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
     DIRECTION_BUY,
@@ -194,14 +195,14 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
         self._definition = definition
         self._attr_name = definition.name
         self._attr_native_unit_of_measurement = definition.unit
-        self._attr_unique_id = f"{entry.entry_id}_haeo_{definition.key}"
+        self._attr_unique_id = f"{entry.entry_id}_{definition.key}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Group these sensors under the same device as the rest of the entry."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"LocalVolts v2 {self.coordinator.nmi}",
+            name=DEVICE_NAME,
             manufacturer=DEVICE_MANUFACTURER,
             model=DEVICE_MODEL,
             configuration_url=DEVICE_CONFIGURATION_URL,
@@ -281,8 +282,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     # shares of the interval, so they are the closest single number to what the
     # next kWh is worth under the current match.
     HaeoFeedDefinition(
-        key="buy_price",
-        name="HAEO Buy Price",
+        key="buy_rate_all_var",
+        name="Buy Rate All Var",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_BUY,
         source="rateAllVar",
@@ -290,8 +291,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=lambda record: cents_to_dollars(record, "rateAllVar"),
     ),
     HaeoFeedDefinition(
-        key="sell_price",
-        name="HAEO Sell Price",
+        key="sell_rate_all_var",
+        name="Sell Rate All Var",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_SELL,
         source="rateAllVar",
@@ -302,8 +303,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     # records in the validation window, so it is not published as a separate
     # signal. Negate flexUp if the opposite sign is wanted.
     HaeoFeedDefinition(
-        key="flex_up_price",
-        name="HAEO Flex Up Price",
+        key="buy_flex_up",
+        name="Buy Flex Up",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_BUY,
         source="flexUp",
@@ -311,8 +312,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=lambda record: cents_to_dollars(record, "flexUp"),
     ),
     HaeoFeedDefinition(
-        key="p2p_matched_price",
-        name="HAEO P2P Matched Price",
+        key="sell_matched_cost",
+        name="Sell Matched Cost",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_SELL,
         source="matchedCost",
@@ -323,8 +324,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     # They are not site capability, so they belong on a premium offer tier or a
     # dashboard, not on the whole of grid power limit.
     HaeoFeedDefinition(
-        key="p2p_matched_proportion",
-        name="HAEO P2P Matched Proportion",
+        key="sell_proportion_p2p",
+        name="Sell Proportion P2P",
         unit=UNIT_PERCENT,
         direction=DIRECTION_SELL,
         source="proportionP2P",
@@ -332,8 +333,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=matched_proportion,
     ),
     HaeoFeedDefinition(
-        key="p2p_matched_power",
-        name="HAEO P2P Matched Power",
+        key="sell_matched_power",
+        name="Sell Matched Power",
         unit=UNIT_KILOWATT,
         direction=DIRECTION_SELL,
         source="volume x proportionP2P",
@@ -341,8 +342,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=matched_power,
     ),
     HaeoFeedDefinition(
-        key="import_power",
-        name="HAEO Import Power",
+        key="buy_volume_power",
+        name="Buy Volume Power",
         unit=UNIT_KILOWATT,
         direction=DIRECTION_BUY,
         source="volume",
@@ -350,8 +351,8 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=volume_power,
     ),
     HaeoFeedDefinition(
-        key="export_power",
-        name="HAEO Export Power",
+        key="sell_volume_power",
+        name="Sell Volume Power",
         unit=UNIT_KILOWATT,
         direction=DIRECTION_SELL,
         source="volume",

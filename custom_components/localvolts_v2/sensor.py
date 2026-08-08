@@ -43,6 +43,7 @@ from .const import (
     CONF_V1_PARTNER_ID,
     DEVICE_CONFIGURATION_URL,
     DEVICE_MANUFACTURER,
+    DEVICE_NAME,
     DEVICE_MODEL,
     DIRECTION_SELL,
     DOMAIN,
@@ -143,7 +144,7 @@ class LocalVoltsSensorBase(CoordinatorEntity[LocalVoltsCoordinator], SensorEntit
         """Group all entities for an NMI under one LocalVolts device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"LocalVolts v2 {self.coordinator.nmi}",
+            name=DEVICE_NAME,
             manufacturer=DEVICE_MANUFACTURER,
             model=DEVICE_MODEL,
             configuration_url=DEVICE_CONFIGURATION_URL,

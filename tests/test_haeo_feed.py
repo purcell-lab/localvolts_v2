@@ -8,6 +8,8 @@ the shape is asserted directly rather than assumed.
 """
 from __future__ import annotations
 
+import re
+
 from datetime import datetime, timedelta, timezone
 import json
 from types import SimpleNamespace
@@ -19,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.localvolts_v2.const import CONF_NMI, DOMAIN
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
+from custom_components.localvolts_v2.const import DEVICE_NAME
 from custom_components.localvolts_v2.haeo_feed import (
     HAEO_FEEDS,
     HaeoFeedSensor,
@@ -182,7 +185,7 @@ async def test_every_feed_sensor_matches_the_haeo_forecast_shape(hass):
 async def test_timestamps_carry_an_explicit_offset(hass):
     """A naive timestamp risks being read as UTC by the consumer."""
     sensors = _sensors(hass, buy_forecast=[_record("Buy")])
-    points = sensors["buy_price"].extra_state_attributes["forecast"]
+    points = sensors["buy_rate_all_var"].extra_state_attributes["forecast"]
     parsed = dt_util.parse_datetime(points[0]["time"])
     assert parsed is not None
     assert parsed.utcoffset() is not None
@@ -200,7 +203,7 @@ async def test_prices_are_published_in_dollars_not_cents(hass):
         buy=_record("Buy", rateAllVar=30.76478598),
         buy_forecast=[_record("Buy", rateAllVar=30.76478598)],
     )
-    sensor = sensors["buy_price"]
+    sensor = sensors["buy_rate_all_var"]
 
     assert sensor.native_unit_of_measurement == UNIT_DOLLAR_PER_KWH
     assert sensor.native_value == pytest.approx(0.3076478598)
@@ -211,7 +214,7 @@ async def test_prices_are_published_in_dollars_not_cents(hass):
 async def test_power_feeds_are_published_in_kilowatts(hass):
     """HAEO power limits are kW, and volume is kWh per interval."""
     sensors = _sensors(hass, sell=_record("Sell", volume=0.1), sell_forecast=[_record("Sell", volume=0.1)])
-    sensor = sensors["export_power"]
+    sensor = sensors["sell_volume_power"]
 
     assert sensor.native_unit_of_measurement == UNIT_KILOWATT
     assert sensor.native_value == pytest.approx(1.2)
@@ -221,7 +224,7 @@ async def test_power_feeds_are_published_in_kilowatts(hass):
 async def test_previous_interpolation_is_declared(hass):
     """Linear is HAEO's default and would ramp between interval prices."""
     sensors = _sensors(hass, buy_forecast=[_record("Buy")])
-    assert sensors["buy_price"].extra_state_attributes["interpolation_mode"] == "previous"
+    assert sensors["buy_rate_all_var"].extra_state_attributes["interpolation_mode"] == "previous"
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -232,7 +235,7 @@ async def test_rows_with_an_undefined_value_are_omitted_not_zeroed(hass):
         _record("Sell", intervalEnd="2026-08-08T00:10:00Z", proportionP2P=0.0, matchedCost=0.0),
     ]
     sensors = _sensors(hass, sell_forecast=forecast)
-    points = sensors["p2p_matched_price"].extra_state_attributes["forecast"]
+    points = sensors["sell_matched_cost"].extra_state_attributes["forecast"]
 
     assert len(points) == 1
     assert points[0]["value"] == pytest.approx(0.50, abs=1e-6)
@@ -261,7 +264,7 @@ async def test_points_are_sorted_and_no_point_is_dropped(hass):
         for index in reversed(range(288))
     ]
     sensors = _sensors(hass, buy_forecast=forecast)
-    attributes = sensors["buy_price"].extra_state_attributes
+    attributes = sensors["buy_rate_all_var"].extra_state_attributes
     points = attributes["forecast"]
 
     assert points == sorted(points, key=lambda point: point["time"])
@@ -282,7 +285,7 @@ async def test_the_recorded_payload_stays_small_however_long_the_horizon(hass):
             )
             for index in range(count)
         ]
-        sensor = _sensors(hass, buy_forecast=forecast)["buy_price"]
+        sensor = _sensors(hass, buy_forecast=forecast)["buy_rate_all_var"]
         attributes = {
             **sensor.extra_state_attributes,
             "unit_of_measurement": sensor.native_unit_of_measurement,
@@ -305,7 +308,7 @@ async def test_the_recorded_payload_stays_small_however_long_the_horizon(hass):
 async def test_no_forecast_yields_an_empty_list_rather_than_an_error(hass):
     """An empty forecast must not raise, even though HAEO will ignore it."""
     sensors = _sensors(hass, buy=_record("Buy"))
-    attributes = sensors["buy_price"].extra_state_attributes
+    attributes = sensors["buy_rate_all_var"].extra_state_attributes
 
     assert attributes["forecast"] == []
     assert attributes["forecast_entries"] == 0
@@ -315,7 +318,7 @@ async def test_no_forecast_yields_an_empty_list_rather_than_an_error(hass):
 async def test_flex_down_is_not_published_because_it_is_the_negation_of_flex_up(hass):
     """flexDown was exactly -flexUp on all 1730 records in the sample window."""
     keys = {definition.key for definition in HAEO_FEEDS}
-    assert "flex_up_price" in keys
+    assert "buy_flex_up" in keys
     assert "flex_down_price" not in keys
 
 
@@ -347,8 +350,38 @@ async def test_no_feed_sensor_records_a_bulk_or_prose_attribute(hass):
 async def test_the_measured_value_is_still_recorded(hass):
     """Excluding labels must not touch the state or the entry count."""
     buy = _record("Buy")
-    sensor = _sensors(hass, buy=buy, buy_forecast=[buy])["buy_price"]
+    sensor = _sensors(hass, buy=buy, buy_forecast=[buy])["buy_rate_all_var"]
     unrecorded = type(sensor)._unrecorded_attributes
 
     assert "forecast_entries" not in unrecorded
     assert sensor.native_value is not None
+
+
+def test_no_user_facing_name_mentions_the_consumer():
+    """Names describe the LocalVolts field, not whoever consumes it.
+
+    The optimizer is one consumer of these signals, not their identity, and a
+    name that encodes a consumer goes stale as soon as a second one appears.
+    """
+    for definition in HAEO_FEEDS:
+        assert "haeo" not in definition.name.lower(), definition.name
+        assert "haeo" not in definition.key.lower(), definition.key
+
+
+def test_every_name_leads_with_the_api_direction():
+    """Each name states the Buy or Sell endpoint the field was read from."""
+    for definition in HAEO_FEEDS:
+        assert definition.name.startswith(("Buy ", "Sell ")), definition.name
+        assert definition.key.startswith(("buy_", "sell_")), definition.key
+        expected = "buy" if definition.direction == "Buy" else "sell"
+        assert definition.key.startswith(expected + "_"), (
+            f"{definition.key} claims direction {definition.direction}"
+        )
+
+
+def test_the_device_name_carries_no_meter_identifier():
+    """The device name reaches every generated entity_id, so keep the NMI out."""
+    assert DEVICE_NAME == "LocalVolts v2"
+    # The version digit in "v2" is fine. A run of digits long enough to be an
+    # NMI is not, which is what this guards against.
+    assert not re.search(r"\d{4,}", DEVICE_NAME)

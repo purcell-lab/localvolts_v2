@@ -45,7 +45,7 @@ Use the integration's **Configure** action after setup to change the polling int
 
 ## Entities
 
-All entities are grouped under one device named `LocalVolts v2 <NMI>`.
+All entities are grouped under one device named `LocalVolts v2`. The device name deliberately omits the NMI, because the device name is used to generate every `entity_id` and a meter identifier is not something to leak into screenshots or shared dashboards.
 
 | Entity | Purpose |
 |---|---|
@@ -59,6 +59,33 @@ All entities are grouped under one device named `LocalVolts v2 <NMI>`.
 | Forecast Chart camera | Cached PNG chart of Buy and Sell forecast `rateAllVar` values. P2P-matched intervals are marked separately. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
+
+### Single signal sensors
+
+Eight further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
+
+| Entity | Unit | Direction | Field |
+|---|---|---|---|
+| Buy Rate All Var | `$/kWh` | Buy | `rateAllVar` |
+| Sell Rate All Var | `$/kWh` | Sell | `rateAllVar` |
+| Buy Flex Up | `$/kWh` | Buy | `flexUp` |
+| Sell Matched Cost | `$/kWh` | Sell | `matchedCost` |
+| Sell Proportion P2P | `%` | Sell | `proportionP2P` |
+| Sell Matched Power | `kW` | Sell | `volume` times `proportionP2P` |
+| Buy Volume Power | `kW` | Buy | `volume` |
+| Sell Volume Power | `kW` | Sell | `volume` |
+
+Three conventions are deliberate.
+
+Prices are in `$/kWh`, not the API's `c/kWh`. Optimizers that accept a currency prefix on a per-energy unit would read `c/kWh` as dollars, overstating every price a hundredfold and relabelling their own cost outputs.
+
+Points are stamped at the interval **start**, derived from `intervalEnd` less the interval duration, and each sensor declares `interpolation_mode: previous`. A value stamped at its own interval end would otherwise take effect one interval late.
+
+`volume` is converted from metered kWh to average kW. Note that forward `volume` is a carry forward of past metering rather than a site capability, so it should not be wired to a power limit.
+
+`flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` if the opposite sign is wanted.
+
+If your optimizer sums every entity assigned to a field rather than choosing between them, adding one of these prices alongside an existing price series in the same field will double count.
 
 ## Services
 

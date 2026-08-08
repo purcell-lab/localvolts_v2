@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.core import HomeAssistant
 
-from .const import DEVICE_MANUFACTURER, DEVICE_MODEL, DOMAIN
+from .const import DEVICE_MANUFACTURER, DEVICE_MODEL, DEVICE_NAME, DOMAIN
 from .coordinator import LocalVoltsCoordinator
 from .forecast_chart import render_forecast_chart
 
@@ -51,7 +51,7 @@ class LocalVoltsForecastChartCamera(CoordinatorEntity[LocalVoltsCoordinator], Ca
         """Associate this camera with the entry's LocalVolts device."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"LocalVolts v2 {self.coordinator.nmi}",
+            name=DEVICE_NAME,
             manufacturer=DEVICE_MANUFACTURER,
             model=DEVICE_MODEL,
         )
