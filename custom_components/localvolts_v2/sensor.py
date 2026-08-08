@@ -51,6 +51,7 @@ from .const import (
     ATTR_SETTLED_INTERVAL_COUNT,
 )
 from .coordinator import LocalVoltsCoordinator
+from .haeo_feed import build_haeo_feed_sensors
 
 PARALLEL_UPDATES = 0
 
@@ -118,6 +119,10 @@ async def async_setup_entry(
         LocalVoltsP2PProportionSensor(coordinator, entry),
         LocalVoltsMarketStatsSensor(coordinator, entry),
     ]
+    # Single signal sensors shaped for HAEO's forecast parser. Kept separate
+    # from the rate sensors because HAEO requires {"time", "value"} rows and a
+    # single unit per entity.
+    entities.extend(build_haeo_feed_sensors(coordinator, entry))
     if entry.data.get(CONF_V1_API_KEY) and entry.data.get(CONF_V1_PARTNER_ID):
         entities.append(LocalVoltsV1V2DailyCostComparisonSensor(coordinator, entry))
     async_add_entities(entities, update_before_add=True)
