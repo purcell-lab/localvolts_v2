@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -22,6 +23,9 @@ from .const import (
     ATTR_FLEX_DOWN,
     ATTR_FLEX_UP,
     ATTR_FORECAST,
+    ATTR_FORECAST_ENTRIES,
+    ATTR_FORECAST_FIELDS,
+    ATTR_FORECAST_TRUNCATED,
     ATTR_INTERVAL_DURATION,
     ATTR_INTERVAL_END,
     ATTR_LAST_UPDATE,
@@ -37,6 +41,10 @@ from .const import (
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
     DOMAIN,
+    FORECAST_FIELD_DIGITS,
+    FORECAST_FIELD_TIERS,
+    MAX_ATTRIBUTE_BYTES,
+    ATTR_SETTLED_INTERVAL_COUNT,
 )
 from .coordinator import LocalVoltsCoordinator
 
@@ -62,21 +70,78 @@ def _record_local_date(record: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _forecast_attribute(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return a compact, template-friendly forecast list."""
-    return [
-        {
-            "intervalEnd": record.get("intervalEnd"),
-            "time": record.get("intervalEnd"),
-            "rateAllVar": _number(record, ATTR_RATE_ALL_VAR),
-            "volume": _number(record, ATTR_VOLUME),
-            "amountAll": _number(record, ATTR_AMOUNT_ALL),
-            "proportionP2P": _number(record, ATTR_PROPORTION_P2P),
-            "flexUp": _number(record, ATTR_FLEX_UP),
-            "quality": record.get(ATTR_QUALITY),
+def _forecast_entry(record: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    """Return one compact, template-friendly forecast row."""
+    entry: dict[str, Any] = {ATTR_INTERVAL_END: record.get(ATTR_INTERVAL_END)}
+    for field in fields:
+        value = _number(record, field)
+        entry[field] = (
+            None if value is None else round(value, FORECAST_FIELD_DIGITS[field])
+        )
+    return entry
+
+
+def _encoded_size(payload: Any) -> int:
+    """Return the serialized byte size the recorder would have to store."""
+    return len(
+        json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
+    )
+
+
+def _with_forecast(
+    base: dict[str, Any], records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Attach the richest forecast that still fits the recorder attribute budget.
+
+    Exceeding the budget makes the recorder discard every attribute on the state,
+    so the forecast disappears from history entirely. Detail is therefore shed a
+    tier at a time while the full time horizon is preserved, because a shorter
+    horizon is more damaging to a scheduler than fewer fields per interval.
+    """
+    for fields in FORECAST_FIELD_TIERS:
+        entries = [_forecast_entry(record, fields) for record in records]
+        candidate = {
+            **base,
+            ATTR_FORECAST: entries,
+            ATTR_FORECAST_ENTRIES: len(entries),
+            ATTR_FORECAST_FIELDS: list(fields),
+            ATTR_FORECAST_TRUNCATED: False,
         }
-        for record in records
-    ]
+        if _encoded_size(candidate) <= MAX_ATTRIBUTE_BYTES:
+            return candidate
+
+    # Even the leanest tier overflows, so drop the furthest intervals last.
+    fields = FORECAST_FIELD_TIERS[-1]
+    entries = [_forecast_entry(record, fields) for record in records]
+
+    def fits(count: int) -> bool:
+        return (
+            _encoded_size(
+                {
+                    **base,
+                    ATTR_FORECAST: entries[:count],
+                    ATTR_FORECAST_ENTRIES: count,
+                    ATTR_FORECAST_FIELDS: list(fields),
+                    ATTR_FORECAST_TRUNCATED: True,
+                }
+            )
+            <= MAX_ATTRIBUTE_BYTES
+        )
+
+    low, high = 0, len(entries)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    return {
+        **base,
+        ATTR_FORECAST: entries[:low],
+        ATTR_FORECAST_ENTRIES: low,
+        ATTR_FORECAST_FIELDS: list(fields),
+        ATTR_FORECAST_TRUNCATED: True,
+    }
 
 
 async def async_setup_entry(
@@ -171,8 +236,8 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
         """Expose current pricing details and the complete forward forecast."""
         current = self._current
         if current is None:
-            return {ATTR_FORECAST: _forecast_attribute(self._forecast)}
-        return {
+            return _with_forecast({}, self._forecast)
+        base = {
             ATTR_VOLUME: _number(current, ATTR_VOLUME),
             ATTR_AMOUNT_ALL: _number(current, ATTR_AMOUNT_ALL),
             ATTR_AMOUNT_VAR: _number(current, ATTR_AMOUNT_VAR),
@@ -188,8 +253,8 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
             ATTR_INTERVAL_DURATION: current.get(ATTR_INTERVAL_DURATION),
             ATTR_LAST_UPDATE: current.get(ATTR_LAST_UPDATE),
             ATTR_EMISSIONS: _number(current, ATTR_EMISSIONS),
-            ATTR_FORECAST: _forecast_attribute(self._forecast),
         }
+        return _with_forecast(base, self._forecast)
 
 
 class LocalVoltsCurrentBuyRateSensor(_CurrentRateSensor):
@@ -235,24 +300,35 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
             return self.coordinator.data.buy_history
         return self.coordinator.data.sell_history
 
-    @property
-    def native_value(self) -> float:
+    def _today_total(self) -> tuple[float, int]:
         """Sum settled records for the Home Assistant local calendar date."""
         today = dt_util.now().date()
         total = 0.0
+        count = 0
         for record in self._records:
             interval_end = _record_local_date(record)
             value = _number(record, self._amount_key)
             if interval_end is not None and interval_end.date() == today and value is not None:
                 total += value
-        return round(total, 6)
+                count += 1
+        return round(total, 6), count
+
+    @property
+    def native_value(self) -> float:
+        """Return today's settled total."""
+        return self._today_total()[0]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Describe the total so it is clear that it excludes forecasts."""
+        """Describe the total so it is clear that it excludes forecasts.
+
+        The count reports only the intervals that contributed to the sum. The
+        coordinator retains about three days of settled history for other
+        consumers, so the length of that history would overstate today.
+        """
         return {
             "calculation": f"sum({self._amount_key}) over today's settled intervals",
-            "settled_interval_count": len(self._records),
+            ATTR_SETTLED_INTERVAL_COUNT: self._today_total()[1],
         }
 
 

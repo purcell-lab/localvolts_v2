@@ -1,11 +1,12 @@
 """Sensor tests for interval attributes and conditional v1 comparison entity."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.localvolts_v2.const import (
@@ -19,9 +20,15 @@ from custom_components.localvolts_v2.const import (
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
 from custom_components.localvolts_v2.sensor import (
     LocalVoltsCurrentBuyRateSensor,
+    LocalVoltsDailyCostSensor,
     LocalVoltsV1V2DailyCostComparisonSensor,
     async_setup_entry,
 )
+
+
+def _utc_stamp(moment: datetime) -> str:
+    """Render a moment as the UTC timestamp format the API returns."""
+    return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _record(direction: str, quality: str, **values) -> dict:
@@ -74,7 +81,49 @@ async def test_current_buy_sensor_state_and_forecast_attribute(hass):
     attrs = sensor.extra_state_attributes
     assert attrs["amountAll"] == 0.12
     assert attrs["forecast"][0]["rateAllVar"] == 31.2
-    assert attrs["forecast"][0]["quality"] == "Fcst"
+    # quality is no longer repeated per row because every row is forward looking
+    # by construction, and the field cost a share of the recorder byte budget.
+    assert "quality" not in attrs["forecast"][0]
+    assert attrs["forecast_entries"] == 1
+    assert attrs["forecast_truncated"] is False
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
+    """The reported count must describe today's contributors, not stored history.
+
+    The coordinator keeps about three days of settled history for other
+    consumers, so reporting its length would badly overstate a daily total.
+    """
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "4001247247")
+    # Anchor on local midday so the sample cannot straddle midnight.
+    midday = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    today = [
+        _record("Buy", "Exp", intervalEnd=_utc_stamp(midday + timedelta(minutes=5 * index)), amountAll=0.10)
+        for index in range(3)
+    ]
+    earlier = [
+        _record("Buy", "Exp", intervalEnd=_utc_stamp(midday - timedelta(days=2)), amountAll=0.10)
+        for _ in range(40)
+    ]
+    coordinator.async_set_updated_data(
+        LocalVoltsData(
+            current_buy=today[0],
+            current_sell=None,
+            buy_forecast=[],
+            sell_forecast=[],
+            buy_history=today + earlier,
+            sell_history=[],
+            v1_history=None,
+            market_stats=None,
+            last_update=datetime.now(timezone.utc),
+        )
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "4001247247"})
+    sensor = LocalVoltsDailyCostSensor(coordinator, entry)
+
+    assert sensor.native_value == pytest.approx(0.30)
+    assert sensor.extra_state_attributes["settled_interval_count"] == 3
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
