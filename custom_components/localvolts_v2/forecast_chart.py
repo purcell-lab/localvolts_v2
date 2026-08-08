@@ -11,15 +11,23 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
+from homeassistant.util import dt as dt_util
+
 
 def _parse_local_time(value: Any) -> datetime | None:
-    """Parse an API UTC timestamp and convert it to the host local timezone."""
+    """Parse an API UTC timestamp and convert it to the Home Assistant timezone.
+
+    datetime.astimezone() with no argument uses the process timezone, which on a
+    container is often UTC and need not match the timezone configured in Home
+    Assistant. Plotting against that produces a silently shifted axis.
+    """
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone()
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+    return dt_util.as_local(parsed)
 
 
 def _series(records: list[dict[str, Any]]) -> tuple[list[datetime], list[float], list[tuple[datetime, float]]]:
@@ -93,6 +101,7 @@ def render_forecast_chart(
                     zorder=3,
                 )
             axis.set_ylabel("c/kWh")
+            axis.set_xlabel(f"Interval end ({dt_util.DEFAULT_TIME_ZONE})")
             axis.xaxis.set_major_formatter(mdates.DateFormatter("%d %b\n%H:%M"))
             axis.grid(True, alpha=0.3)
             axis.legend(loc="best")
