@@ -1,18 +1,19 @@
-"""Tests for recorder attribute sizing, forecast filtering and NMI normalization."""
+"""Tests for recorder attribute exclusion, forecast filtering and NMI normalization."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
 
 from custom_components.localvolts_v2.api import normalize_nmi
-from custom_components.localvolts_v2.const import (
-    FORECAST_FIELD_TIERS,
-    MAX_ATTRIBUTE_BYTES,
-)
+from custom_components.localvolts_v2.const import FORECAST_FIELDS
 from custom_components.localvolts_v2.coordinator import _forward_forecast
-from custom_components.localvolts_v2.sensor import _encoded_size, _with_forecast
+from custom_components.localvolts_v2.sensor import (
+    _CurrentRateSensor,
+    _with_forecast,
+)
 
-# The recorder's own hard limit, which MAX_ATTRIBUTE_BYTES must stay under.
+# The recorder's own hard limit, from MAX_STATE_ATTRS_BYTES in
+# homeassistant/components/recorder/db_schema.py.
 RECORDER_LIMIT = 16384
 
 # Roughly the scalar attributes a current rate sensor carries alongside the
@@ -37,8 +38,22 @@ BASE_ATTRIBUTES = {
 HA_APPENDED = {
     "unit_of_measurement": "c/kWh",
     "state_class": "measurement",
-    "friendly_name": "LocalVolts v2 4001247247 Current Buy Rate",
+    "friendly_name": "LocalVolts v2 40012345678 Current Buy Rate",
 }
+
+
+def _recorded_bytes(attributes: dict, unrecorded: frozenset[str]) -> int:
+    """Return the byte size the recorder would store for a state.
+
+    This mirrors StateAttributes.shared_attrs_bytes_from_event in
+    homeassistant/components/recorder/db_schema.py, which builds the exclude set
+    and drops those keys *before* measuring against MAX_STATE_ATTRS_BYTES. That
+    ordering is the whole point of the fix, so it is reproduced here rather than
+    assumed.
+    """
+    full = {**attributes, **HA_APPENDED}
+    kept = {k: v for k, v in full.items() if k not in unrecorded}
+    return len(json.dumps(kept, separators=(",", ":"), default=str).encode("utf-8"))
 
 
 def _forecast_records(count: int, *, start: datetime | None = None) -> list[dict]:
@@ -61,50 +76,55 @@ def _forecast_records(count: int, *, start: datetime | None = None) -> list[dict
     ]
 
 
-def _stored_size(attributes: dict) -> int:
-    """Return the size the recorder would see for a full state."""
-    return _encoded_size({**attributes, **HA_APPENDED})
+def test_the_forecast_is_declared_unrecorded():
+    """The recorder must be told to skip the large attributes.
+
+    Excluding them is what keeps the state storable; without this the recorder
+    discards *every* attribute on the state and logs a warning on each update.
+    """
+    unrecorded = _CurrentRateSensor._unrecorded_attributes
+    assert "forecast" in unrecorded
+    assert "forecast_fields" in unrecorded
 
 
-def test_budget_stays_under_the_recorder_limit():
-    """The configured budget must leave headroom below the recorder's own limit."""
-    assert MAX_ATTRIBUTE_BYTES < RECORDER_LIMIT
+def test_scalar_attributes_are_still_recorded():
+    """Only the bulk payload is excluded, so history keeps the useful values."""
+    unrecorded = _CurrentRateSensor._unrecorded_attributes
+    for key in ("rateAllVar", "proportionP2P", "flexUp", "quality", "intervalEnd"):
+        assert key not in unrecorded
+    assert "forecast_entries" not in unrecorded
 
 
-def test_full_day_of_intervals_fits_the_recorder_limit():
-    """A full 24 hours at five minute resolution must still be storable."""
+def test_a_full_day_is_storable_once_the_forecast_is_excluded():
+    """288 intervals overflow the limit if recorded, and fit once excluded."""
     attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(288))
-    assert _stored_size(attributes) <= RECORDER_LIMIT
+    unrecorded = _CurrentRateSensor._unrecorded_attributes
+
+    assert _recorded_bytes(attributes, frozenset()) > RECORDER_LIMIT
+    assert _recorded_bytes(attributes, unrecorded) <= RECORDER_LIMIT
 
 
-def test_realistic_horizon_keeps_every_interval():
-    """A 14 hour horizon should degrade fields rather than lose intervals."""
-    records = _forecast_records(168)
-    attributes = _with_forecast(BASE_ATTRIBUTES, records)
-    assert attributes["forecast_truncated"] is False
-    assert attributes["forecast_entries"] == 168
-    assert len(attributes["forecast"]) == 168
-    assert _stored_size(attributes) <= RECORDER_LIMIT
+def test_no_interval_is_dropped_at_any_size():
+    """With no size budget to fit, the full horizon is always published."""
+    for count in (12, 168, 288, 2016):
+        attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(count))
+        assert attributes["forecast_entries"] == count
+        assert len(attributes["forecast"]) == count
 
 
-def test_rate_is_never_dropped_from_any_tier():
-    """Every degradation tier must retain the price, which is the point of the sensor."""
-    for fields in FORECAST_FIELD_TIERS:
-        assert "rateAllVar" in fields
+def test_no_field_is_shed_at_any_size():
+    """Every row carries the full field set regardless of horizon length."""
+    expected = {"intervalEnd", *FORECAST_FIELDS}
+    for count in (12, 288, 2016):
+        attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(count))
+        assert attributes["forecast_fields"] == list(FORECAST_FIELDS)
+        assert set(attributes["forecast"][0]) == expected
 
 
-def test_small_forecast_keeps_the_richest_tier():
-    """A short forecast has room for every field."""
+def test_flex_down_is_available_on_the_rate_sensor_forecast():
+    """The rate sensor is the raw API view, so it keeps both flex directions."""
     attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(12))
-    assert attributes["forecast_fields"] == list(FORECAST_FIELD_TIERS[0])
-    assert attributes["forecast"][0]["volume"] is not None
-
-
-def test_reported_fields_match_the_emitted_rows():
-    """forecast_fields must describe what consumers actually receive."""
-    attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(168))
-    expected = {"intervalEnd", *attributes["forecast_fields"]}
-    assert set(attributes["forecast"][0]) == expected
+    assert "flexDown" in attributes["forecast"][0]
 
 
 def test_values_are_rounded_not_truncated_to_zero():
@@ -115,28 +135,16 @@ def test_values_are_rounded_not_truncated_to_zero():
     assert row["volume"] == 0.06692
 
 
-def test_oversized_forecast_truncates_the_tail_and_reports_it():
-    """Beyond the leanest tier the furthest intervals are dropped, and flagged."""
-    attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(2000))
-    assert attributes["forecast_truncated"] is True
-    assert 0 < attributes["forecast_entries"] < 2000
-    assert attributes["forecast_entries"] == len(attributes["forecast"])
-    assert _stored_size(attributes) <= RECORDER_LIMIT
-    first = attributes["forecast"][0]["intervalEnd"]
-    assert first == "2026-08-08T00:05:00Z"
-
-
 def test_empty_forecast_is_reported_as_empty():
-    """No forecast data must not be confused with a truncated forecast."""
+    """No forecast data must be reported as zero entries, not omitted."""
     attributes = _with_forecast(BASE_ATTRIBUTES, [])
     assert attributes["forecast"] == []
     assert attributes["forecast_entries"] == 0
-    assert attributes["forecast_truncated"] is False
 
 
 def test_attributes_remain_json_serializable():
-    """The recorder stores JSON, so every emitted value must encode cleanly."""
-    attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(168))
+    """The state machine and websocket API both serialize to JSON."""
+    attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(288))
     json.dumps(attributes)
 
 

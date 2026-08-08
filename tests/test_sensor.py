@@ -81,11 +81,10 @@ async def test_current_buy_sensor_state_and_forecast_attribute(hass):
     attrs = sensor.extra_state_attributes
     assert attrs["amountAll"] == 0.12
     assert attrs["forecast"][0]["rateAllVar"] == 31.2
-    # quality is no longer repeated per row because every row is forward looking
-    # by construction, and the field cost a share of the recorder byte budget.
+    # quality is no longer repeated per row because every row is forward
+    # looking by construction.
     assert "quality" not in attrs["forecast"][0]
     assert attrs["forecast_entries"] == 1
-    assert attrs["forecast_truncated"] is False
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

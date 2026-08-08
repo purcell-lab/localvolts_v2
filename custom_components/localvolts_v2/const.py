@@ -31,40 +31,23 @@ DIRECTION_SELL = "Sell"
 QUALITY_FORECAST = "Fcst"
 SETTLED_QUALITIES = frozenset({"Exp", "Act"})
 
-# The recorder refuses to store a state whose serialized attributes exceed 16384
-# bytes, drops the attributes and logs a warning each time. The margin leaves
-# room for the attributes Home Assistant adds itself, such as friendly_name.
-MAX_ATTRIBUTE_BYTES = 15360
-
-# Forecast detail is shed one tier at a time so the full time horizon survives.
-# Volume and amount go first because they are LocalVolts' own consumption
-# estimate, which a local optimiser replaces anyway. proportionP2P goes next
-# because it is an outcome measure that is most meaningful once an interval has
-# settled, and it stays available on the settled history either way. flexUp is
-# kept longer because it is a forward signal that drives dispatch decisions.
-# The rate is always kept. A 14 hour horizon at five minute resolution does not
-# leave room for both flexUp and proportionP2P within the recorder budget.
-FORECAST_FIELD_TIERS: tuple[tuple[str, ...], ...] = (
-    ("rateAllVar", "volume", "amountAll", "proportionP2P", "flexUp"),
-    ("rateAllVar", "proportionP2P", "flexUp"),
-    ("rateAllVar", "flexUp"),
-    ("rateAllVar",),
-)
-
 # Rates are cents per kWh and volumes are kWh, so the eight decimal places the
-# API returns carry no usable information and cost most of the byte budget.
+# API returns carry no usable information and cost most of the payload size.
 FORECAST_FIELD_DIGITS: dict[str, int] = {
     "rateAllVar": 4,
     "volume": 5,
     "amountAll": 5,
     "proportionP2P": 4,
     "flexUp": 4,
+    "flexDown": 4,
 }
+
+# Every field published on each forecast row.
+FORECAST_FIELDS: tuple[str, ...] = tuple(FORECAST_FIELD_DIGITS)
 
 ATTR_FORECAST = "forecast"
 ATTR_FORECAST_ENTRIES = "forecast_entries"
 ATTR_FORECAST_FIELDS = "forecast_fields"
-ATTR_FORECAST_TRUNCATED = "forecast_truncated"
 ATTR_SETTLED_INTERVAL_COUNT = "settled_interval_count"
 ATTR_QUALITY = "quality"
 ATTR_INTERVAL_END = "intervalEnd"

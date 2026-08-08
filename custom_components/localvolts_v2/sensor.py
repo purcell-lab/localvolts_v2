@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import json
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -25,7 +24,6 @@ from .const import (
     ATTR_FORECAST,
     ATTR_FORECAST_ENTRIES,
     ATTR_FORECAST_FIELDS,
-    ATTR_FORECAST_TRUNCATED,
     ATTR_INTERVAL_DURATION,
     ATTR_INTERVAL_END,
     ATTR_LAST_UPDATE,
@@ -42,8 +40,7 @@ from .const import (
     DEVICE_MODEL,
     DOMAIN,
     FORECAST_FIELD_DIGITS,
-    FORECAST_FIELD_TIERS,
-    MAX_ATTRIBUTE_BYTES,
+    FORECAST_FIELDS,
     ATTR_SETTLED_INTERVAL_COUNT,
 )
 from .coordinator import LocalVoltsCoordinator
@@ -70,10 +67,10 @@ def _record_local_date(record: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _forecast_entry(record: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+def _forecast_entry(record: dict[str, Any]) -> dict[str, Any]:
     """Return one compact, template-friendly forecast row."""
     entry: dict[str, Any] = {ATTR_INTERVAL_END: record.get(ATTR_INTERVAL_END)}
-    for field in fields:
+    for field in FORECAST_FIELDS:
         value = _number(record, field)
         entry[field] = (
             None if value is None else round(value, FORECAST_FIELD_DIGITS[field])
@@ -81,66 +78,21 @@ def _forecast_entry(record: dict[str, Any], fields: tuple[str, ...]) -> dict[str
     return entry
 
 
-def _encoded_size(payload: Any) -> int:
-    """Return the serialized byte size the recorder would have to store."""
-    return len(
-        json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8")
-    )
-
-
 def _with_forecast(
     base: dict[str, Any], records: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Attach the richest forecast that still fits the recorder attribute budget.
+    """Attach the complete forward forecast to the given base attributes.
 
-    Exceeding the budget makes the recorder discard every attribute on the state,
-    so the forecast disappears from history entirely. Detail is therefore shed a
-    tier at a time while the full time horizon is preserved, because a shorter
-    horizon is more damaging to a scheduler than fewer fields per interval.
+    The forecast is excluded from the recorder by _unrecorded_attributes on the
+    entity, so there is no attribute size budget to fit and no reason to shed
+    either fields or intervals. See the comment on the entity class.
     """
-    for fields in FORECAST_FIELD_TIERS:
-        entries = [_forecast_entry(record, fields) for record in records]
-        candidate = {
-            **base,
-            ATTR_FORECAST: entries,
-            ATTR_FORECAST_ENTRIES: len(entries),
-            ATTR_FORECAST_FIELDS: list(fields),
-            ATTR_FORECAST_TRUNCATED: False,
-        }
-        if _encoded_size(candidate) <= MAX_ATTRIBUTE_BYTES:
-            return candidate
-
-    # Even the leanest tier overflows, so drop the furthest intervals last.
-    fields = FORECAST_FIELD_TIERS[-1]
-    entries = [_forecast_entry(record, fields) for record in records]
-
-    def fits(count: int) -> bool:
-        return (
-            _encoded_size(
-                {
-                    **base,
-                    ATTR_FORECAST: entries[:count],
-                    ATTR_FORECAST_ENTRIES: count,
-                    ATTR_FORECAST_FIELDS: list(fields),
-                    ATTR_FORECAST_TRUNCATED: True,
-                }
-            )
-            <= MAX_ATTRIBUTE_BYTES
-        )
-
-    low, high = 0, len(entries)
-    while low < high:
-        middle = (low + high + 1) // 2
-        if fits(middle):
-            low = middle
-        else:
-            high = middle - 1
+    entries = [_forecast_entry(record) for record in records]
     return {
         **base,
-        ATTR_FORECAST: entries[:low],
-        ATTR_FORECAST_ENTRIES: low,
-        ATTR_FORECAST_FIELDS: list(fields),
-        ATTR_FORECAST_TRUNCATED: True,
+        ATTR_FORECAST: entries,
+        ATTR_FORECAST_ENTRIES: len(entries),
+        ATTR_FORECAST_FIELDS: list(FORECAST_FIELDS),
     }
 
 
@@ -196,6 +148,13 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
 
     _attr_native_unit_of_measurement = "c/kWh"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # The forecast is a forward projection, so its own history has no value, and
+    # recording it would write a fresh multi-kilobyte row on every update. The
+    # recorder builds its exclude set and applies it before the 16384 byte size
+    # check, so excluding the attribute here also removes the size warning
+    # rather than merely skipping storage, and the full payload stays live in
+    # the state machine for template and optimiser consumers.
+    _unrecorded_attributes = frozenset({ATTR_FORECAST, ATTR_FORECAST_FIELDS})
 
     def __init__(
         self,
