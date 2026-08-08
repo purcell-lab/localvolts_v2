@@ -18,6 +18,10 @@ from .const import (
     ATTR_AMOUNT_DEMAND,
     ATTR_AMOUNT_FIXED,
     ATTR_AMOUNT_VAR,
+    ATTR_CALCULATION,
+    ATTR_CAVEAT,
+    ATTR_DESCRIPTION,
+    ATTR_DIRECTION,
     ATTR_EMISSIONS,
     ATTR_FLEX_DOWN,
     ATTR_FLEX_UP,
@@ -27,6 +31,8 @@ from .const import (
     ATTR_INTERVAL_DURATION,
     ATTR_INTERVAL_END,
     ATTR_LAST_UPDATE,
+    ATTR_NODES,
+    ATTR_SELL_PRICE,
     ATTR_MATCHED_COST,
     ATTR_PROPORTION_P2P,
     ATTR_QUALITY,
@@ -38,6 +44,7 @@ from .const import (
     DEVICE_CONFIGURATION_URL,
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
+    DIRECTION_SELL,
     DOMAIN,
     FORECAST_FIELD_DIGITS,
     FORECAST_FIELDS,
@@ -233,6 +240,9 @@ class LocalVoltsCurrentSellRateSensor(_CurrentRateSensor):
 class _DailySettledAmountSensor(LocalVoltsSensorBase):
     """Base class for daily settled import and export amount totals."""
 
+    # calculation is a fixed description of the sum, not a measurement.
+    _unrecorded_attributes = frozenset({ATTR_CALCULATION})
+
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -286,7 +296,9 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
         consumers, so the length of that history would overstate today.
         """
         return {
-            "calculation": f"sum({self._amount_key}) over today's settled intervals",
+            ATTR_CALCULATION: (
+                f"sum({self._amount_key}) over today's settled intervals"
+            ),
             ATTR_SETTLED_INTERVAL_COUNT: self._today_total()[1],
         }
 
@@ -320,6 +332,9 @@ class LocalVoltsDailyEarningsSensor(_DailySettledAmountSensor):
 class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
     """Current export P2P fraction, using Sell because it represents generation."""
 
+    # Both attributes are fixed labels for this entity.
+    _unrecorded_attributes = frozenset({ATTR_DIRECTION, ATTR_DESCRIPTION})
+
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
@@ -336,11 +351,19 @@ class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Make the direction choice explicit for dashboards and templates."""
-        return {"direction": "Sell", "description": "Fraction of current export volume matched P2P"}
+        return {
+            ATTR_DIRECTION: DIRECTION_SELL,
+            ATTR_DESCRIPTION: "Fraction of current export volume matched P2P",
+        }
 
 
 class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
     """Market-wide LocalVolts P2P participation snapshot."""
+
+    # nodes is an unbounded per node list from the API. It has been empty in
+    # every sample so far, but recording it would tie this entity's attribute
+    # size to how many nodes the market reports.
+    _unrecorded_attributes = frozenset({ATTR_NODES, ATTR_SELL_PRICE})
 
     _attr_native_unit_of_measurement = "participants"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -365,12 +388,17 @@ class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the complete market statistics object unchanged."""
-        return dict(self.coordinator.data.market_stats) if self.coordinator.data and self.coordinator.data.market_stats else {}
+        """Expose the market statistics snapshot as the API returned it."""
+        stats = self.coordinator.data.market_stats if self.coordinator.data else None
+        return dict(stats) if stats else {}
 
 
 class LocalVoltsV1V2DailyCostComparisonSensor(LocalVoltsSensorBase):
     """Compare optional v1 costsAll with invoice-oriented v2 amountAll totals."""
+
+    # The two totals and their delta are worth recording. The explanatory
+    # strings around them are fixed and are not.
+    _unrecorded_attributes = frozenset({ATTR_CALCULATION, ATTR_CAVEAT})
 
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -414,6 +442,11 @@ class LocalVoltsV1V2DailyCostComparisonSensor(LocalVoltsSensorBase):
             "v1_costs_all": v1_total,
             "v2_amount_all": v2_total,
             "delta": round(v1_total - v2_total, 6),
-            "calculation": "v1 costsAll minus v2 Buy amountAll over today's settled intervals",
-            "caveat": "v1 costsAll is known to undercount compared with v2 invoice-oriented totals",
+            ATTR_CALCULATION: (
+                "v1 costsAll minus v2 Buy amountAll over today's settled intervals"
+            ),
+            ATTR_CAVEAT: (
+                "v1 costsAll is known to undercount compared with v2 "
+                "invoice-oriented totals"
+            ),
         }

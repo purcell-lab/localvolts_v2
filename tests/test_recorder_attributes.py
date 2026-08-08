@@ -4,12 +4,31 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.localvolts_v2.api import normalize_nmi
-from custom_components.localvolts_v2.const import FORECAST_FIELDS
-from custom_components.localvolts_v2.coordinator import _forward_forecast
+from custom_components.localvolts_v2.const import (
+    CONF_API_KEY,
+    CONF_NMI,
+    CONF_PARTNER_ID,
+    CONF_V1_API_KEY,
+    CONF_V1_PARTNER_ID,
+    DOMAIN,
+    FORECAST_FIELDS,
+)
+from custom_components.localvolts_v2.coordinator import (
+    LocalVoltsCoordinator,
+    LocalVoltsData,
+    _forward_forecast,
+)
 from custom_components.localvolts_v2.sensor import (
     _CurrentRateSensor,
     _with_forecast,
+    async_setup_entry,
 )
 
 # The recorder's own hard limit, from MAX_STATE_ATTRS_BYTES in
@@ -194,3 +213,114 @@ def test_normalize_nmi_leaves_a_clean_value_untouched():
     """A already clean NMI must pass through unchanged."""
     assert normalize_nmi("40012345678") == "40012345678"
     assert normalize_nmi("") == ""
+
+
+async def _all_entities(hass):
+    """Build every entity the integration sets up, with data present."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_NMI: "40012345678",
+            CONF_API_KEY: "key",
+            CONF_PARTNER_ID: "1",
+            CONF_V1_API_KEY: "v1key",
+            CONF_V1_PARTNER_ID: "2",
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "40012345678")
+    buy = {
+        "direction": "Buy",
+        "quality": "Exp",
+        "intervalEnd": _utc_now_stamp(),
+        "intervalDuration": "5",
+        "rateAllVar": 31.2,
+        "volume": 0.25,
+        "amountAll": 0.12,
+        "proportionP2P": 0.1,
+        "matchedCost": 0.03,
+        "flexUp": 1.0,
+        "flexDown": -1.0,
+    }
+    sell = {**buy, "direction": "Sell"}
+    coordinator.async_set_updated_data(
+        LocalVoltsData(
+            current_buy=buy,
+            current_sell=sell,
+            buy_forecast=[buy],
+            sell_forecast=[sell],
+            buy_history=[buy],
+            sell_history=[sell],
+            v1_history=[{"intervalEnd": buy["intervalEnd"], "costsAll": 0.1}],
+            market_stats={
+                "active_loads": 3,
+                "active_generators": 2,
+                "sellPrice": {"low": 0, "median": 0, "high": 0},
+                "nodes": [],
+                "updated": "08/08/2026 09:55:51 AM GMT+10",
+            },
+            last_update=datetime.now(timezone.utc),
+        )
+    )
+    entry.runtime_data = SimpleNamespace(coordinator=coordinator)
+    collected: list = []
+    await async_setup_entry(
+        hass, entry, lambda new, **_kwargs: collected.extend(new)
+    )
+    return collected
+
+
+def _utc_now_stamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_every_entity_is_covered_by_the_audit(hass):
+    """The audit must actually see entities, otherwise it proves nothing."""
+    entities = await _all_entities(hass)
+    assert len(entities) >= 6
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_no_entity_records_a_bulk_or_prose_attribute(hass):
+    """Every entity must exclude list, dict and prose attributes from history.
+
+    This is the guard that keeps the fix from regressing. Rather than naming the
+    current attributes, it inspects what each entity actually publishes and
+    fails if anything bulky or purely descriptive is left recorded, so a new
+    attribute that needs excluding fails here when it is added.
+    """
+    offenders: list[str] = []
+    for entity in await _all_entities(hass):
+        unrecorded = type(entity)._unrecorded_attributes
+        for key, value in (entity.extra_state_attributes or {}).items():
+            if key in unrecorded:
+                continue
+            name = type(entity).__name__
+            if isinstance(value, (list, dict)):
+                offenders.append(f"{name}.{key} is a {type(value).__name__}")
+            elif isinstance(value, str) and len(value) > 40:
+                offenders.append(f"{name}.{key} is a {len(value)} character string")
+    assert not offenders, "recorded attributes that should be excluded: " + "; ".join(
+        offenders
+    )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_static_labels_are_excluded_on_every_entity_that_has_them(hass):
+    """A label that never changes must not be written to history on each update."""
+    static_keys = {
+        "calculation",
+        "caveat",
+        "description",
+        "direction",
+        "source_field",
+        "interpolation_mode",
+        "forecast_fields",
+    }
+    for entity in await _all_entities(hass):
+        unrecorded = type(entity)._unrecorded_attributes
+        present = set(entity.extra_state_attributes or {}) & static_keys
+        assert present <= unrecorded, (
+            f"{type(entity).__name__} records static labels {present - unrecorded}"
+        )

@@ -66,6 +66,25 @@ ATTR_FLEX_UP = "flexUp"
 ATTR_FLEX_DOWN = "flexDown"
 ATTR_EMISSIONS = "emissions"
 
+# Attributes that describe an entity rather than measure anything. They never
+# change once the entity exists, so recording them writes a fresh attributes row
+# for no benefit. They stay on the live state for dashboards and templates.
+ATTR_CALCULATION = "calculation"
+ATTR_CAVEAT = "caveat"
+ATTR_DESCRIPTION = "description"
+ATTR_DIRECTION = "direction"
+
+# The market snapshot's per node breakdown. Empty in every sample so far, but it
+# is an unbounded list from the API, and a market wide node list is not
+# something this entity's own history should carry.
+ATTR_NODES = "nodes"
+
+# The market snapshot's low, median and high sell price band. A nested mapping
+# cannot be charted or fed into long term statistics from history anyway, so
+# recording it buys nothing. Flattening it into scalars would be worth doing if
+# a consumer ever needs the band over time.
+ATTR_SELL_PRICE = "sellPrice"
+
 # Optional, separate LocalVolts v1 credential pair. A v1 key is not usable on v2.
 CONF_V1_API_KEY = "v1_api_key"
 CONF_V1_PARTNER_ID = "v1_partner_id"
