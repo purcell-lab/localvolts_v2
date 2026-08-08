@@ -66,6 +66,26 @@ def _sorted_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _forward_forecast(
+    records: list[dict[str, Any]], now: datetime
+) -> list[dict[str, Any]]:
+    """Return forecast records that have not already elapsed.
+
+    LocalVolts keeps returning rows still marked Fcst for intervals that closed
+    days ago and never settled. Quality alone is therefore not enough to decide
+    what is forward looking, so the interval end is checked as well.
+    """
+    forward: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("quality") != QUALITY_FORECAST:
+            continue
+        end = _record_end(record)
+        if end is None or end <= now:
+            continue
+        forward.append(record)
+    return forward
+
+
 def _current_record(
     records: list[dict[str, Any]], now: datetime
 ) -> dict[str, Any] | None:
@@ -147,12 +167,8 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         return LocalVoltsData(
             current_buy=_current_record(buy_records, now),
             current_sell=_current_record(sell_records, now),
-            buy_forecast=[
-                record for record in buy_records if record.get("quality") == QUALITY_FORECAST
-            ],
-            sell_forecast=[
-                record for record in sell_records if record.get("quality") == QUALITY_FORECAST
-            ],
+            buy_forecast=_forward_forecast(buy_records, now),
+            sell_forecast=_forward_forecast(sell_records, now),
             buy_history=[
                 record for record in buy_records if record.get("quality") in SETTLED_QUALITIES
             ],
