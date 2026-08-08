@@ -20,16 +20,6 @@ Selecting the badge above opens this repository directly in HACS on your own Hom
 4. Restart Home Assistant.
 5. Go to **Settings > Devices & services > Add integration** and select **LocalVolts v2**.
 
-### Manual installation
-
-Copy `custom_components/localvolts_v2` into:
-
-```text
-/config/custom_components/localvolts_v2
-```
-
-Restart Home Assistant, then add **LocalVolts v2** from **Settings > Devices & services**.
-
 ## Setup
 
 The UI config flow asks for the following values:
@@ -86,6 +76,14 @@ Points are stamped at the interval **start**, derived from `intervalEnd` less th
 `flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` if the opposite sign is wanted.
 
 If your optimizer sums every entity assigned to a field rather than choosing between them, adding one of these prices alongside an existing price series in the same field will double count.
+
+### Forecast chart
+
+The camera entity renders Buy and Sell `rateAllVar` locally in Home Assistant and caches the PNG in memory. Intervals with peer matched export are marked, which makes the matched export rate visible as a flat ceiling against the varying Sell rate.
+
+![Buy and Sell rate forecast with peer matched intervals marked](docs/forecast_chart.png)
+
+Rendered from a real 24 hour window at a single residential premises in south east Queensland. The chart carries no meter identifier, so it is safe to share.
 
 ## Services
 
@@ -156,4 +154,4 @@ The icon and logo in `custom_components/localvolts_v2/brand/` are generic energy
 
 ## Privacy and credentials
 
-Credentials are stored in the Home Assistant config entry. The integration sends them only to the LocalVolts API hosts needed for the configured v2 and optional v1 feeds. The forecast chart is rendered locally in Home Assistant and cached in memory.
+Credentials are stored in the Home Assistant config entry. The integration sends them only to the LocalVolts API hosts needed for the configured v2 and optional v1 feeds. The forecast chart is rendered locally in Home Assistant and cached in memory, and its title carries no meter identifier so it can be shared or screenshotted safely.

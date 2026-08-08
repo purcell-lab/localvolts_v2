@@ -56,7 +56,6 @@ def _series(records: list[dict[str, Any]]) -> tuple[list[datetime], list[float],
 def render_forecast_chart(
     buy_forecast: list[dict[str, Any]],
     sell_forecast: list[dict[str, Any]],
-    nmi: str,
 ) -> bytes:
     """Render LocalVolts Buy and Sell rate forecasts as an in-memory PNG."""
     fig, axis = plt.subplots(figsize=(10, 5), dpi=100)
@@ -102,11 +101,13 @@ def render_forecast_chart(
                 )
             axis.set_ylabel("c/kWh")
             axis.set_xlabel(f"Interval end ({dt_util.DEFAULT_TIME_ZONE})")
-            axis.xaxis.set_major_formatter(mdates.DateFormatter("%d %b\n%H:%M"))
+            axis.xaxis.set_major_formatter(
+                mdates.ConciseDateFormatter(axis.xaxis.get_major_locator())
+            )
             axis.grid(True, alpha=0.3)
             axis.legend(loc="best")
 
-        axis.set_title(f"LocalVolts v2 Forecast - NMI {nmi}")
+        axis.set_title("LocalVolts v2 Forecast")
         fig.tight_layout()
         buffer = BytesIO()
         fig.savefig(buffer, format="png")
