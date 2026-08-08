@@ -17,9 +17,11 @@ from homeassistant.util import dt as dt_util
 def _parse_local_time(value: Any) -> datetime | None:
     """Parse an API UTC timestamp and convert it to the Home Assistant timezone.
 
-    datetime.astimezone() with no argument uses the process timezone, which on a
-    container is often UTC and need not match the timezone configured in Home
-    Assistant. Plotting against that produces a silently shifted axis.
+    Converting here is not sufficient on its own. matplotlib's date2num
+    normalises any aware datetime to UTC, and the tick formatter then renders it
+    in its own timezone, which defaults to rcParams["timezone"], that is UTC. So
+    the axis must also be given the timezone explicitly, or the conversion done
+    here is undone at render time and the axis is silently shifted.
     """
     if not value:
         return None
@@ -28,6 +30,21 @@ def _parse_local_time(value: Any) -> datetime | None:
     except (TypeError, ValueError):
         return None
     return dt_util.as_local(parsed)
+
+
+def _configure_time_axis(axis: Any) -> None:
+    """Point the tick locator and formatter at the Home Assistant timezone.
+
+    Both need it. date2num has already normalised the aware datetimes to UTC by
+    this point, so the timezone given here is what decides the hour drawn on the
+    axis, and the default is UTC regardless of the site timezone.
+    """
+    locator = mdates.AutoDateLocator(tz=dt_util.DEFAULT_TIME_ZONE)
+    axis.xaxis.set_major_locator(locator)
+    axis.xaxis.set_major_formatter(
+        mdates.ConciseDateFormatter(locator, tz=dt_util.DEFAULT_TIME_ZONE)
+    )
+    axis.set_xlabel(f"Interval end ({dt_util.DEFAULT_TIME_ZONE})")
 
 
 def _series(records: list[dict[str, Any]]) -> tuple[list[datetime], list[float], list[tuple[datetime, float]]]:
@@ -100,10 +117,7 @@ def render_forecast_chart(
                     zorder=3,
                 )
             axis.set_ylabel("c/kWh")
-            axis.set_xlabel(f"Interval end ({dt_util.DEFAULT_TIME_ZONE})")
-            axis.xaxis.set_major_formatter(
-                mdates.ConciseDateFormatter(axis.xaxis.get_major_locator())
-            )
+            _configure_time_axis(axis)
             axis.grid(True, alpha=0.3)
             axis.legend(loc="best")
 
