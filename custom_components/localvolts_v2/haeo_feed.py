@@ -34,8 +34,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import json
-import logging
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
@@ -51,11 +49,8 @@ from .const import (
     DIRECTION_BUY,
     DIRECTION_SELL,
     DOMAIN,
-    MAX_ATTRIBUTE_BYTES,
 )
 from .coordinator import LocalVoltsCoordinator
-
-_LOGGER = logging.getLogger(__name__)
 
 # Held flat across each interval rather than interpolated between stamps.
 INTERPOLATION_PREVIOUS = "previous"
@@ -162,50 +157,17 @@ def matched_proportion(record: dict[str, Any]) -> float | None:
     return None if proportion is None else proportion * 100.0
 
 
-def _encoded_size(payload: Any) -> int:
-    """Return the byte length of a payload once serialised for the recorder."""
-    return len(json.dumps(payload, separators=(",", ":"), default=str).encode())
-
-
-def fit_forecast(base: dict[str, Any], points: list[dict[str, Any]]) -> dict[str, Any]:
-    """Attach as many forecast points as the recorder attribute budget allows.
-
-    These sensors carry one value per point, so the payload is far smaller than
-    the multi-field rate sensor attributes, but a full day at five minute
-    resolution can still approach the limit. Points are dropped from the tail so
-    the near term horizon, which is what the optimiser acts on first, always
-    survives.
-    """
-    attributes = dict(base)
-
-    def with_points(count: int, truncated: bool) -> dict[str, Any]:
-        return {
-            **attributes,
-            "forecast": points[:count],
-            "forecast_entries": count,
-            "forecast_truncated": truncated,
-        }
-
-    if _encoded_size(with_points(len(points), False)) <= MAX_ATTRIBUTE_BYTES:
-        return with_points(len(points), False)
-
-    low, high = 0, len(points)
-    while low < high:
-        middle = (low + high + 1) // 2
-        if _encoded_size(with_points(middle, True)) <= MAX_ATTRIBUTE_BYTES:
-            low = middle
-        else:
-            high = middle - 1
-    _LOGGER.debug("Trimmed HAEO forecast from %d to %d points", len(points), low)
-    return with_points(low, True)
-
-
 class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
     """A single signal published in the shape HAEO's forecast parser expects."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # HAEO reads the live state machine, not history, and a forecast's own
+    # history has no value. Excluding the attribute also keeps the state under
+    # the recorder's 16384 byte limit, because the recorder applies its exclude
+    # set before measuring, so no horizon needs trimming to fit.
+    _unrecorded_attributes = frozenset({"forecast"})
 
     def __init__(
         self,
@@ -283,7 +245,9 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
             "source_field": self._definition.source,
             "description": self._definition.description,
         }
-        return fit_forecast(base, points)
+        base["forecast"] = points
+        base["forecast_entries"] = len(points)
+        return base
 
 
 @dataclass(frozen=True, slots=True)

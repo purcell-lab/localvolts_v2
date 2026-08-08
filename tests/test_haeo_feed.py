@@ -17,10 +17,11 @@ import pytest
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.localvolts_v2.const import CONF_NMI, DOMAIN, MAX_ATTRIBUTE_BYTES
+from custom_components.localvolts_v2.const import CONF_NMI, DOMAIN
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
 from custom_components.localvolts_v2.haeo_feed import (
     HAEO_FEEDS,
+    HaeoFeedSensor,
     UNIT_DOLLAR_PER_KWH,
     UNIT_KILOWATT,
     build_haeo_feed_sensors,
@@ -237,9 +238,19 @@ async def test_rows_with_an_undefined_value_are_omitted_not_zeroed(hass):
     assert points[0]["value"] == pytest.approx(0.50, abs=1e-6)
 
 
+def test_the_forecast_is_declared_unrecorded():
+    """The bulk payload must be kept out of the recorder.
+
+    The recorder builds its exclude set and drops those keys before comparing
+    against its 16384 byte limit, so this is what makes an arbitrarily long
+    horizon storable without trimming any points.
+    """
+    assert "forecast" in HaeoFeedSensor._unrecorded_attributes
+
+
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_points_are_sorted_and_a_full_day_stays_within_the_budget(hass):
-    """A 288 interval day must still fit the recorder attribute limit."""
+async def test_points_are_sorted_and_no_point_is_dropped(hass):
+    """A full 288 interval day is published whole, in chronological order."""
     origin = datetime(2026, 8, 8, tzinfo=timezone.utc)
     forecast = [
         _record(
@@ -254,9 +265,40 @@ async def test_points_are_sorted_and_a_full_day_stays_within_the_budget(hass):
     points = attributes["forecast"]
 
     assert points == sorted(points, key=lambda point: point["time"])
-    assert len(points) == attributes["forecast_entries"]
-    encoded = len(json.dumps(attributes, separators=(",", ":"), default=str).encode())
-    assert encoded <= MAX_ATTRIBUTE_BYTES
+    assert len(points) == 288
+    assert attributes["forecast_entries"] == 288
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_the_recorded_payload_stays_small_however_long_the_horizon(hass):
+    """What the recorder stores must not grow with the forecast length."""
+    origin = datetime(2026, 8, 8, tzinfo=timezone.utc)
+
+    def recorded_size(count: int) -> int:
+        forecast = [
+            _record(
+                "Buy",
+                intervalEnd=(origin + timedelta(minutes=5 * (index + 1))).isoformat().replace("+00:00", "Z"),
+            )
+            for index in range(count)
+        ]
+        sensor = _sensors(hass, buy_forecast=forecast)["buy_price"]
+        attributes = {
+            **sensor.extra_state_attributes,
+            "unit_of_measurement": sensor.native_unit_of_measurement,
+            "friendly_name": "LocalVolts v2 40012345678 HAEO Buy Price",
+        }
+        kept = {
+            key: value
+            for key, value in attributes.items()
+            if key not in HaeoFeedSensor._unrecorded_attributes
+        }
+        return len(json.dumps(kept, separators=(",", ":"), default=str).encode())
+
+    # The only growth is the digit count of forecast_entries itself, so a long
+    # horizon must not add more than a couple of bytes to what is stored.
+    assert recorded_size(288) - recorded_size(12) <= 4
+    assert recorded_size(288) < 16384
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
