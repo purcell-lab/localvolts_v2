@@ -317,3 +317,38 @@ async def test_flex_down_is_not_published_because_it_is_the_negation_of_flex_up(
     keys = {definition.key for definition in HAEO_FEEDS}
     assert "flex_up_price" in keys
     assert "flex_down_price" not in keys
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_no_feed_sensor_records_a_bulk_or_prose_attribute(hass):
+    """The same audit the rate sensors get, applied to these feeds.
+
+    Excluding an attribute affects history only, so HAEO still reads every one
+    of these from the live state.
+    """
+    sell = _record("Sell", volume=0.07, proportionP2P=0.5, matchedCost=0.0175)
+    buy = _record("Buy", volume=0.07)
+    offenders: list[str] = []
+    for key, sensor in _sensors(
+        hass, buy=buy, sell=sell, buy_forecast=[buy], sell_forecast=[sell]
+    ).items():
+        unrecorded = type(sensor)._unrecorded_attributes
+        for name, value in sensor.extra_state_attributes.items():
+            if name in unrecorded:
+                continue
+            if isinstance(value, (list, dict)):
+                offenders.append(f"{key}.{name} is a {type(value).__name__}")
+            elif isinstance(value, str) and len(value) > 40:
+                offenders.append(f"{key}.{name} is a {len(value)} character string")
+    assert not offenders, "; ".join(offenders)
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_the_measured_value_is_still_recorded(hass):
+    """Excluding labels must not touch the state or the entry count."""
+    buy = _record("Buy")
+    sensor = _sensors(hass, buy=buy, buy_forecast=[buy])["buy_price"]
+    unrecorded = type(sensor)._unrecorded_attributes
+
+    assert "forecast_entries" not in unrecorded
+    assert sensor.native_value is not None

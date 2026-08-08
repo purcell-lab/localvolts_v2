@@ -167,7 +167,20 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
     # history has no value. Excluding the attribute also keeps the state under
     # the recorder's 16384 byte limit, because the recorder applies its exclude
     # set before measuring, so no horizon needs trimming to fit.
-    _unrecorded_attributes = frozenset({"forecast"})
+    #
+    # The other four are fixed labels describing what this signal is. They never
+    # change once the entity exists, so recording them would write the same
+    # strings to history on every update. Only the value and forecast_entries
+    # are left recorded.
+    _unrecorded_attributes = frozenset(
+        {
+            "forecast",
+            "interpolation_mode",
+            "direction",
+            "source_field",
+            "description",
+        }
+    )
 
     def __init__(
         self,
