@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
 from math import ceil
 from typing import Any
 
@@ -12,7 +13,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import LocalVoltsClient, parse_interval_end
+from .api import LocalVoltsClient, normalize_nmi, parse_interval_end
 from .api_v1 import LocalVoltsV1Client
 from .const import (
     CONF_API_KEY,
@@ -29,6 +30,8 @@ from .const import (
     SERVICE_REFRESH_FORECAST,
 )
 from .coordinator import LocalVoltsCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CAMERA]
 
@@ -159,9 +162,35 @@ def _async_register_services(hass: HomeAssistant) -> None:
         )
 
 
+def _async_normalize_nmi_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> None:
+    """Rewrite an entry whose stored NMI still contains whitespace.
+
+    Entity ids are assigned once at creation, so this cleans up the stored NMI,
+    the unique id, the entry title and therefore the device name and chart
+    title. Existing entity ids keep their original form until they are renamed
+    or the entry is removed and added again.
+    """
+    stored = entry.data.get(CONF_NMI, "")
+    cleaned = normalize_nmi(stored)
+    if cleaned == stored:
+        return
+
+    _LOGGER.info(
+        "Normalizing stored LocalVolts NMI for entry %s by removing whitespace",
+        entry.entry_id,
+    )
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, CONF_NMI: cleaned},
+        title=f"LocalVolts v2 {cleaned}",
+        unique_id=f"{DOMAIN}_{cleaned}",
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
     """Set up LocalVolts v2 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    _async_normalize_nmi_entry(hass, entry)
     scan_seconds = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS))
     session = async_get_clientsession(hass)
     client = LocalVoltsClient(

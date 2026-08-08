@@ -18,13 +18,21 @@ from .const import (
     ATTR_AMOUNT_DEMAND,
     ATTR_AMOUNT_FIXED,
     ATTR_AMOUNT_VAR,
+    ATTR_CALCULATION,
+    ATTR_CAVEAT,
+    ATTR_DESCRIPTION,
+    ATTR_DIRECTION,
     ATTR_EMISSIONS,
     ATTR_FLEX_DOWN,
     ATTR_FLEX_UP,
     ATTR_FORECAST,
+    ATTR_FORECAST_ENTRIES,
+    ATTR_FORECAST_FIELDS,
     ATTR_INTERVAL_DURATION,
     ATTR_INTERVAL_END,
     ATTR_LAST_UPDATE,
+    ATTR_NODES,
+    ATTR_SELL_PRICE,
     ATTR_MATCHED_COST,
     ATTR_PROPORTION_P2P,
     ATTR_QUALITY,
@@ -36,7 +44,11 @@ from .const import (
     DEVICE_CONFIGURATION_URL,
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
+    DIRECTION_SELL,
     DOMAIN,
+    FORECAST_FIELD_DIGITS,
+    FORECAST_FIELDS,
+    ATTR_SETTLED_INTERVAL_COUNT,
 )
 from .coordinator import LocalVoltsCoordinator
 
@@ -62,21 +74,33 @@ def _record_local_date(record: dict[str, Any]) -> datetime | None:
         return None
 
 
-def _forecast_attribute(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return a compact, template-friendly forecast list."""
-    return [
-        {
-            "intervalEnd": record.get("intervalEnd"),
-            "time": record.get("intervalEnd"),
-            "rateAllVar": _number(record, ATTR_RATE_ALL_VAR),
-            "volume": _number(record, ATTR_VOLUME),
-            "amountAll": _number(record, ATTR_AMOUNT_ALL),
-            "proportionP2P": _number(record, ATTR_PROPORTION_P2P),
-            "flexUp": _number(record, ATTR_FLEX_UP),
-            "quality": record.get(ATTR_QUALITY),
-        }
-        for record in records
-    ]
+def _forecast_entry(record: dict[str, Any]) -> dict[str, Any]:
+    """Return one compact, template-friendly forecast row."""
+    entry: dict[str, Any] = {ATTR_INTERVAL_END: record.get(ATTR_INTERVAL_END)}
+    for field in FORECAST_FIELDS:
+        value = _number(record, field)
+        entry[field] = (
+            None if value is None else round(value, FORECAST_FIELD_DIGITS[field])
+        )
+    return entry
+
+
+def _with_forecast(
+    base: dict[str, Any], records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Attach the complete forward forecast to the given base attributes.
+
+    The forecast is excluded from the recorder by _unrecorded_attributes on the
+    entity, so there is no attribute size budget to fit and no reason to shed
+    either fields or intervals. See the comment on the entity class.
+    """
+    entries = [_forecast_entry(record) for record in records]
+    return {
+        **base,
+        ATTR_FORECAST: entries,
+        ATTR_FORECAST_ENTRIES: len(entries),
+        ATTR_FORECAST_FIELDS: list(FORECAST_FIELDS),
+    }
 
 
 async def async_setup_entry(
@@ -131,6 +155,13 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
 
     _attr_native_unit_of_measurement = "c/kWh"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # The forecast is a forward projection, so its own history has no value, and
+    # recording it would write a fresh multi-kilobyte row on every update. The
+    # recorder builds its exclude set and applies it before the 16384 byte size
+    # check, so excluding the attribute here also removes the size warning
+    # rather than merely skipping storage, and the full payload stays live in
+    # the state machine for template and optimiser consumers.
+    _unrecorded_attributes = frozenset({ATTR_FORECAST, ATTR_FORECAST_FIELDS})
 
     def __init__(
         self,
@@ -171,8 +202,8 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
         """Expose current pricing details and the complete forward forecast."""
         current = self._current
         if current is None:
-            return {ATTR_FORECAST: _forecast_attribute(self._forecast)}
-        return {
+            return _with_forecast({}, self._forecast)
+        base = {
             ATTR_VOLUME: _number(current, ATTR_VOLUME),
             ATTR_AMOUNT_ALL: _number(current, ATTR_AMOUNT_ALL),
             ATTR_AMOUNT_VAR: _number(current, ATTR_AMOUNT_VAR),
@@ -188,8 +219,8 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
             ATTR_INTERVAL_DURATION: current.get(ATTR_INTERVAL_DURATION),
             ATTR_LAST_UPDATE: current.get(ATTR_LAST_UPDATE),
             ATTR_EMISSIONS: _number(current, ATTR_EMISSIONS),
-            ATTR_FORECAST: _forecast_attribute(self._forecast),
         }
+        return _with_forecast(base, self._forecast)
 
 
 class LocalVoltsCurrentBuyRateSensor(_CurrentRateSensor):
@@ -208,6 +239,9 @@ class LocalVoltsCurrentSellRateSensor(_CurrentRateSensor):
 
 class _DailySettledAmountSensor(LocalVoltsSensorBase):
     """Base class for daily settled import and export amount totals."""
+
+    # calculation is a fixed description of the sum, not a measurement.
+    _unrecorded_attributes = frozenset({ATTR_CALCULATION})
 
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -235,24 +269,37 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
             return self.coordinator.data.buy_history
         return self.coordinator.data.sell_history
 
-    @property
-    def native_value(self) -> float:
+    def _today_total(self) -> tuple[float, int]:
         """Sum settled records for the Home Assistant local calendar date."""
         today = dt_util.now().date()
         total = 0.0
+        count = 0
         for record in self._records:
             interval_end = _record_local_date(record)
             value = _number(record, self._amount_key)
             if interval_end is not None and interval_end.date() == today and value is not None:
                 total += value
-        return round(total, 6)
+                count += 1
+        return round(total, 6), count
+
+    @property
+    def native_value(self) -> float:
+        """Return today's settled total."""
+        return self._today_total()[0]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Describe the total so it is clear that it excludes forecasts."""
+        """Describe the total so it is clear that it excludes forecasts.
+
+        The count reports only the intervals that contributed to the sum. The
+        coordinator retains about three days of settled history for other
+        consumers, so the length of that history would overstate today.
+        """
         return {
-            "calculation": f"sum({self._amount_key}) over today's settled intervals",
-            "settled_interval_count": len(self._records),
+            ATTR_CALCULATION: (
+                f"sum({self._amount_key}) over today's settled intervals"
+            ),
+            ATTR_SETTLED_INTERVAL_COUNT: self._today_total()[1],
         }
 
 
@@ -285,6 +332,9 @@ class LocalVoltsDailyEarningsSensor(_DailySettledAmountSensor):
 class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
     """Current export P2P fraction, using Sell because it represents generation."""
 
+    # Both attributes are fixed labels for this entity.
+    _unrecorded_attributes = frozenset({ATTR_DIRECTION, ATTR_DESCRIPTION})
+
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
@@ -301,11 +351,19 @@ class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Make the direction choice explicit for dashboards and templates."""
-        return {"direction": "Sell", "description": "Fraction of current export volume matched P2P"}
+        return {
+            ATTR_DIRECTION: DIRECTION_SELL,
+            ATTR_DESCRIPTION: "Fraction of current export volume matched P2P",
+        }
 
 
 class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
     """Market-wide LocalVolts P2P participation snapshot."""
+
+    # nodes is an unbounded per node list from the API. It has been empty in
+    # every sample so far, but recording it would tie this entity's attribute
+    # size to how many nodes the market reports.
+    _unrecorded_attributes = frozenset({ATTR_NODES, ATTR_SELL_PRICE})
 
     _attr_native_unit_of_measurement = "participants"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -330,12 +388,17 @@ class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the complete market statistics object unchanged."""
-        return dict(self.coordinator.data.market_stats) if self.coordinator.data and self.coordinator.data.market_stats else {}
+        """Expose the market statistics snapshot as the API returned it."""
+        stats = self.coordinator.data.market_stats if self.coordinator.data else None
+        return dict(stats) if stats else {}
 
 
 class LocalVoltsV1V2DailyCostComparisonSensor(LocalVoltsSensorBase):
     """Compare optional v1 costsAll with invoice-oriented v2 amountAll totals."""
+
+    # The two totals and their delta are worth recording. The explanatory
+    # strings around them are fixed and are not.
+    _unrecorded_attributes = frozenset({ATTR_CALCULATION, ATTR_CAVEAT})
 
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -379,6 +442,11 @@ class LocalVoltsV1V2DailyCostComparisonSensor(LocalVoltsSensorBase):
             "v1_costs_all": v1_total,
             "v2_amount_all": v2_total,
             "delta": round(v1_total - v2_total, 6),
-            "calculation": "v1 costsAll minus v2 Buy amountAll over today's settled intervals",
-            "caveat": "v1 costsAll is known to undercount compared with v2 invoice-oriented totals",
+            ATTR_CALCULATION: (
+                "v1 costsAll minus v2 Buy amountAll over today's settled intervals"
+            ),
+            ATTR_CAVEAT: (
+                "v1 costsAll is known to undercount compared with v2 "
+                "invoice-oriented totals"
+            ),
         }

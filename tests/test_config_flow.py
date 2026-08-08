@@ -107,3 +107,33 @@ async def test_user_flow_reports_connectivity_error(hass):
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_user_flow_normalizes_a_separated_nmi_checksum(hass):
+    """An NMI typed with its checksum digit separated is stored as one token.
+
+    The API tolerates the space and answers for the base NMI, so the entry would
+    otherwise succeed while carrying the raw value into the title, the device
+    name, the chart title and every entity id.
+    """
+    client = AsyncMock()
+    client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
+    client.fetch_interval.return_value = []
+
+    with patch("custom_components.localvolts_v2.config_flow.LocalVoltsClient", return_value=client):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_API_KEY: "key",
+                CONF_PARTNER_ID: "partner",
+                CONF_NMI: " 4001234567 8 ",
+            },
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_NMI] == "40012345678"
+    assert result["title"] == "LocalVolts v2 40012345678"
+    # The cleaned NMI must also be what is sent to the API.
+    client.fetch_interval.assert_awaited_once_with("40012345678")

@@ -11,7 +11,13 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import LocalVoltsApiError, LocalVoltsAuthError, LocalVoltsClient, normalize_api_key
+from .api import (
+    LocalVoltsApiError,
+    LocalVoltsAuthError,
+    LocalVoltsClient,
+    normalize_api_key,
+    normalize_nmi,
+)
 from .const import (
     CONF_API_KEY,
     CONF_NMI,
@@ -41,7 +47,7 @@ class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             api_key = normalize_api_key(user_input[CONF_API_KEY])
             partner_id = user_input[CONF_PARTNER_ID].strip()
-            nmi = user_input[CONF_NMI].strip()
+            nmi = normalize_nmi(user_input[CONF_NMI])
             raw_v1_key = user_input.get(CONF_V1_API_KEY, "").strip()
             v1_partner_id = user_input.get(CONF_V1_PARTNER_ID, "").strip()
             try:
