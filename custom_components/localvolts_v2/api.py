@@ -30,6 +30,17 @@ def normalize_api_key(api_key: str) -> str:
     return f"apikey {value}"
 
 
+def normalize_nmi(nmi: str) -> str:
+    """Remove all whitespace from an NMI.
+
+    A National Metering Identifier is often written with its checksum digit
+    separated, for example "4001234567 8". The API tolerates the space and
+    answers for the base NMI, but the raw value would otherwise leak into
+    entity ids, the device name and the chart title.
+    """
+    return "".join(nmi.split())
+
+
 def parse_interval_end(value: str) -> datetime:
     """Parse an API UTC timestamp into an aware datetime."""
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
