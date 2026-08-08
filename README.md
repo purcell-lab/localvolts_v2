@@ -20,16 +20,6 @@ Selecting the badge above opens this repository directly in HACS on your own Hom
 4. Restart Home Assistant.
 5. Go to **Settings > Devices & services > Add integration** and select **LocalVolts v2**.
 
-### Manual installation
-
-Copy `custom_components/localvolts_v2` into:
-
-```text
-/config/custom_components/localvolts_v2
-```
-
-Restart Home Assistant, then add **LocalVolts v2** from **Settings > Devices & services**.
-
 ## Setup
 
 The UI config flow asks for the following values:
@@ -45,7 +35,7 @@ Use the integration's **Configure** action after setup to change the polling int
 
 ## Entities
 
-All entities are grouped under one device named `LocalVolts v2 <NMI>`.
+All entities are grouped under one device named `LocalVolts v2`. The device name deliberately omits the NMI, because the device name is used to generate every `entity_id` and a meter identifier is not something to leak into screenshots or shared dashboards.
 
 | Entity | Purpose |
 |---|---|
@@ -59,6 +49,41 @@ All entities are grouped under one device named `LocalVolts v2 <NMI>`.
 | Forecast Chart camera | Cached PNG chart of Buy and Sell forecast `rateAllVar` values. P2P-matched intervals are marked separately. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
+
+### Single signal sensors
+
+Eight further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
+
+| Entity | Unit | Direction | Field |
+|---|---|---|---|
+| Buy Rate All Var | `$/kWh` | Buy | `rateAllVar` |
+| Sell Rate All Var | `$/kWh` | Sell | `rateAllVar` |
+| Buy Flex Up | `$/kWh` | Buy | `flexUp` |
+| Sell Matched Cost | `$/kWh` | Sell | `matchedCost` |
+| Sell Proportion P2P | `%` | Sell | `proportionP2P` |
+| Sell Matched Power | `kW` | Sell | `volume` times `proportionP2P` |
+| Buy Volume Power | `kW` | Buy | `volume` |
+| Sell Volume Power | `kW` | Sell | `volume` |
+
+Three conventions are deliberate.
+
+Prices are in `$/kWh`, not the API's `c/kWh`. Optimizers that accept a currency prefix on a per-energy unit would read `c/kWh` as dollars, overstating every price a hundredfold and relabelling their own cost outputs.
+
+Points are stamped at the interval **start**, derived from `intervalEnd` less the interval duration, and each sensor declares `interpolation_mode: previous`. A value stamped at its own interval end would otherwise take effect one interval late.
+
+`volume` is converted from metered kWh to average kW. Note that forward `volume` is a carry forward of past metering rather than a site capability, so it should not be wired to a power limit.
+
+`flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` if the opposite sign is wanted.
+
+If your optimizer sums every entity assigned to a field rather than choosing between them, adding one of these prices alongside an existing price series in the same field will double count.
+
+### Forecast chart
+
+The camera entity renders Buy and Sell `rateAllVar` locally in Home Assistant and caches the PNG in memory. Intervals with peer matched export are marked, which makes the matched export rate visible as a flat ceiling against the varying Sell rate.
+
+![Buy and Sell rate forecast with peer matched intervals marked](docs/forecast_chart.png)
+
+Rendered from a real 24 hour window at a single residential premises in south east Queensland. The chart carries no meter identifier, so it is safe to share.
 
 ## Services
 
@@ -129,4 +154,4 @@ The icon and logo in `custom_components/localvolts_v2/brand/` are generic energy
 
 ## Privacy and credentials
 
-Credentials are stored in the Home Assistant config entry. The integration sends them only to the LocalVolts API hosts needed for the configured v2 and optional v1 feeds. The forecast chart is rendered locally in Home Assistant and cached in memory.
+Credentials are stored in the Home Assistant config entry. The integration sends them only to the LocalVolts API hosts needed for the configured v2 and optional v1 feeds. The forecast chart is rendered locally in Home Assistant and cached in memory, and its title carries no meter identifier so it can be shared or screenshotted safely.
