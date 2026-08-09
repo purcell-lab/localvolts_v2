@@ -1,21 +1,24 @@
 # Peer to peer forecast, endpoint and sensor mapping
 
-How peer matched export data reaches Home Assistant, which endpoint carries a forward
-view of it, and which entity to read for what.
+How peer matched data reaches Home Assistant, which endpoint carries a forward view of
+it, and which entity to read for what. Both trading directions are covered, with an
+important limitation on currency described in section 2.
 
 All findings below were verified against the live API and a running Home Assistant
-instance on 2026-08-09, for a single residential premises in SE Queensland. Where
+instance on 2026-08-09 and 2026-08-10, for a single residential premises in SE
+Queensland. Where
 something could not be verified it is marked as unverified rather than inferred.
 
 ## 1. Which endpoint carries the forecast
 
-Exactly one, and it reports only one side of the market. See section 2.
+Exactly one, and its peer matching is only as current as the day's forecast build. See
+section 2.
 
 | Endpoint | Peer matched fields | Forward looking |
 |---|---|---|
 | `GET https://api2.localvolts.com/v2/customer/interval` | `proportionP2P`, `matchedCost` | Yes |
 | `GET https://api2.localvolts.com/v2/market/stats` | `sellPrice` spread, `contracts`, `active_generators` | No |
-| `GET https://api.localvolts.com/v1/customer/interval` | Unverified | Unverified |
+| `GET https://api.localvolts.com/v1/customer/interval` | None, the fields do not exist | No |
 
 ### `/v2/customer/interval`
 
@@ -53,70 +56,56 @@ unreliable: one request returned a Cloudflare 520 and a full day request returne
 single record. Do not build on it. The schema finding stands regardless, since no
 number of records adds a field that is not in the response.
 
-## 2. The API reports peer matching on `Sell` only, even when `Buy` trades are dealing
+## 2. Peer matching is written into the forecast and never revised
 
-This is an API gap, not a description of the market. Do not read it as evidence that buy
-side peer trading does not happen.
+Both directions are reported. An earlier revision of this document claimed the API
+reported `Sell` only. That was wrong, and the correction matters because the real
+behaviour has a sharper failure mode.
 
-`proportionP2P` exists on both directions but only `Sell` is ever populated:
+On 2026-08-10 at 06:08 local the `Buy` direction carried 31 matched intervals totalling
+0.3343 kWh. So `proportionP2P` and `matchedCost` are live fields on the import side.
 
-| Direction | Records with non zero `proportionP2P` |
+### The failure mode
+
+Peer matching appears to be written into forecast rows when the day's forecast is built,
+and is never recomputed afterwards. A trade confirmed after that build is therefore
+invisible for the whole of its delivery day, including after the intervals settle.
+
+Evidence, all from 2026-08-09 and 2026-08-10:
+
+| Observation | Detail |
 |---|---|
-| `Sell` | 190 of 865 |
-| `Buy` | 0 of 865 |
+| Values are frozen, not recomputed | `Sell` matched figures were byte identical at 18:04, 23:00 and 00:15, 0.3567 kWh at 50.0000 c/kWh, while 45 of those intervals moved from `Fcst` to `Exp` |
+| A closed day never changes | The whole 9 August response was unchanged between 00:15 and 06:08, zero fields differing |
+| The 9 August forecast predated the trades | 308 of 312 `Fcst` rows carried a `lastUpdate` of 08 Aug 11:14 |
+| So 9 August reported no buy matching at all | 289 intervals, `proportionP2P` and `matchedCost` both `[0.0]`, while the portal showed 0.29 kWh dealt at 32.2924 c/kWh with counterparty confirmed |
+| 10 August, built after the trades, reports it | 31 matched `Buy` intervals |
 
-### Proven by reconciliation, with the sell side as a positive control
-
-The strongest evidence comes from a single pull at 18:04 local on 2026-08-09, compared
-against the trading portal's own trade list for the same day, read at 18:02:30.
-
-| Side | Portal | API, same pull | Agreement |
-|---|---|---|---|
-| Sell | 9 counterparties, volumes summing to 0.38 kWh, all at 50 c/kWh | 56 matched intervals, 0.3567 kWh matched energy, derived rate **50.0000 c/kWh** | rate exact, volume within the portal's 2 decimal rounding |
-| Buy | 1 counterparty, 0.29 kWh, **32.2924 c/kWh** | 0 matched intervals, `proportionP2P` and `matchedCost` both `[0.0]` | **nothing reported** |
-
-The sell row is the control and it validates the method. The derivation
-`matchedCost / (volume * proportionP2P)` reproduces the portal's sell price to four
-decimal places, so the derivation is correct and the endpoint does report peer matching
-accurately when it reports it at all.
-
-Against that control, the buy row cannot be explained by a bad derivation, a wrong
-window or a timezone error. The buy trades occurred after 17:00 local. Of the 85 buy
-intervals from 17:00 onward, 14 were already settled, and across those and the whole day
-the distinct value sets remain `proportionP2P = [0.0]` and `matchedCost = [0.0]`. The
-portal's buy rate of 32.2924 c/kWh appears in no field of any of the 578 records.
-
-### Earlier confirmation from a trade detail view On 2026-08-09 a `Buy` trade was Confirmed in the
-trading portal with a delivery window opening that same day, 3.39 kWh contracted and
-1.2611 kWh already dealt, 37.20 per cent of the contracted volume. Portal per interval
-figures showed an initial bid of 0.0962 kWh against 0.0987 kWh dealt with nothing left
-standing, which is the whole of that interval's import matched to a peer.
-
-The API showed no trace of it. For the full 288 interval day in local time:
-
-| Check | Result |
-|---|---|
-| `Buy` `proportionP2P`, distinct values | `[0.0]` |
-| `Buy` `matchedCost`, distinct values | `[0.0]` |
-| Intervals at either contracted price | 0 |
-| `Buy` `spotCost` zero, the sell side matched marker | 0 of 289 |
-| `Buy` circuits and registers | one only, `Import` register 12 |
-| `rateAllVar` equals `amountVar / volume * 100` | holds on 289 of 289 |
-
-That last row matters most. The cost identity holds exactly on every buy interval, so
-`amountVar` carries no blended peer price. The matched energy is invisible in the
-quantities and in the pricing alike.
+This is a hypothesis fitted to the observations, not a documented vendor behaviour. It
+explains every observation to date, but the decisive test has not been run: whether
+today's 31 forecast matched `Buy` intervals survive settlement unchanged. If they do, the
+freeze is confirmed. If they vanish, the mechanism is something else.
 
 ### Consequence for optimisation
 
-Buy side signals from this API describe a fully spot settled import even during
-intervals that were matched to a peer at a contracted price. Any optimiser reading
-`buy_rate_all_var` will overstate import cost across those intervals. There is no field
-available to correct for it, so the error cannot be modelled from this endpoint.
+Matched energy can be permanently absent for a delivery day, so `buy_rate_all_var` and
+`sell_rate_all_var` may describe a fully spot settled interval that was actually matched
+at a contracted price. The error is silent and cannot be detected from the response,
+since an unmatched interval and an unreported match are byte identical. It cannot be
+corrected from this endpoint either, because there is no trades or orders endpoint to
+reconcile against, 12 candidate paths all returned 404.
 
-The integration reads `proportionP2P` for `Sell` only, which reflects what the API
-supplies rather than a design decision. Treat a non zero `proportionP2P` on `Buy` as a
-change in API behaviour worth investigating, not as an error.
+### Do not trust the derived buy rate yet
+
+On the sell side `matchedCost / (volume * proportionP2P)` returns exactly 50.0000 c/kWh
+across every matched interval, matching the portal to four decimal places. On the buy
+side the same derivation returns values from 11.0147 to 47.2303 c/kWh with almost no
+repetition, and the portal's buy rate of 32.2924 c/kWh appears in no field of any record.
+Four midday intervals sit near 11.01 and 12.54 c/kWh, close to but not equal to the
+contracted prices of 12.0 and 13.0 c/kWh seen in the portal.
+
+The integration derives `sell_matched_cost` from the sell side only, which is fortunate.
+Do not extend the derivation to the buy side until the rate is understood.
 
 ## 3. Shape of the forecast
 
