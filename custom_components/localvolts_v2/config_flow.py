@@ -23,8 +23,6 @@ from .const import (
     CONF_NMI,
     CONF_PARTNER_ID,
     CONF_SCAN_INTERVAL,
-    CONF_V1_API_KEY,
-    CONF_V1_PARTNER_ID,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     MIN_SCAN_INTERVAL_SECONDS,
@@ -36,20 +34,18 @@ _LOGGER = logging.getLogger(__name__)
 class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle LocalVolts v2 setup through the Home Assistant UI."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Validate primary v2 credentials and create an entry."""
+        """Validate the single credential pair and create an entry."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             api_key = normalize_api_key(user_input[CONF_API_KEY])
             partner_id = user_input[CONF_PARTNER_ID].strip()
             nmi = normalize_nmi(user_input[CONF_NMI])
-            raw_v1_key = user_input.get(CONF_V1_API_KEY, "").strip()
-            v1_partner_id = user_input.get(CONF_V1_PARTNER_ID, "").strip()
             try:
                 client = LocalVoltsClient(
                     async_get_clientsession(self.hass), api_key, partner_id
@@ -76,11 +72,6 @@ class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_PARTNER_ID: partner_id,
                     CONF_NMI: nmi,
                 }
-                # v1 uses a distinct credential pair. A partially supplied pair
-                # is intentionally ignored so primary v2 setup remains usable.
-                if raw_v1_key and v1_partner_id:
-                    data[CONF_V1_API_KEY] = normalize_api_key(raw_v1_key)
-                    data[CONF_V1_PARTNER_ID] = v1_partner_id
                 return self.async_create_entry(
                     title=f"LocalVolts v2 {nmi}",
                     data=data,
@@ -92,8 +83,6 @@ class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_API_KEY): str,
                 vol.Required(CONF_PARTNER_ID): str,
                 vol.Required(CONF_NMI): str,
-                vol.Optional(CONF_V1_API_KEY, default=""): str,
-                vol.Optional(CONF_V1_PARTNER_ID, default=""): str,
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)

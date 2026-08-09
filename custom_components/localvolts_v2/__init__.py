@@ -1,4 +1,4 @@
-"""LocalVolts v2 Home Assistant integration with optional v1 comparison data."""
+"""LocalVolts v2 Home Assistant integration."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,17 +11,15 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import LocalVoltsClient, normalize_nmi, parse_interval_end
-from .api_v1 import LocalVoltsV1Client
 from .const import (
     CONF_API_KEY,
     CONF_NMI,
     CONF_PARTNER_ID,
     CONF_SCAN_INTERVAL,
-    CONF_V1_API_KEY,
-    CONF_V1_PARTNER_ID,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DIRECTION_BUY,
     DIRECTION_SELL,
@@ -187,6 +185,40 @@ def _async_normalize_nmi_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry
     )
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
+    """Drop the second credential pair and the entity that needed it.
+
+    Version 1 entries could carry a separate v1 key and partner id for a daily
+    cost comparison sensor. Both are gone, so the entry is reduced to the three
+    keys still in use and the orphaned entity is deleted from the registry. Left
+    alone it would sit in the UI as unavailable forever, since nothing will ever
+    claim its unique id again.
+    """
+    if entry.version > 2:
+        # Downgrades are not supported. Fail rather than guess.
+        return False
+
+    if entry.version == 1:
+        data = {
+            key: value
+            for key, value in entry.data.items()
+            if key in (CONF_API_KEY, CONF_PARTNER_ID, CONF_NMI)
+        }
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+
+        registry = er.async_get(hass)
+        orphan = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_v1_v2_daily_cost_delta"
+        )
+        if orphan is not None:
+            registry.async_remove(orphan)
+            _LOGGER.debug("Removed the retired daily cost comparison entity %s", orphan)
+
+        _LOGGER.debug("Migrated LocalVolts entry to version 2, single credential pair")
+
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
     """Set up LocalVolts v2 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -198,19 +230,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -
         entry.data[CONF_API_KEY],
         entry.data[CONF_PARTNER_ID],
     )
-    v1_client = None
-    if entry.data.get(CONF_V1_API_KEY) and entry.data.get(CONF_V1_PARTNER_ID):
-        v1_client = LocalVoltsV1Client(
-            session,
-            entry.data[CONF_V1_API_KEY],
-            entry.data[CONF_V1_PARTNER_ID],
-        )
     coordinator = LocalVoltsCoordinator(
         hass,
         client,
         entry.data[CONF_NMI],
         scan_interval=timedelta(seconds=scan_seconds),
-        v1_client=v1_client,
     )
     # Retain the entry so service responses can include the config entry ID.
     coordinator.config_entry = entry

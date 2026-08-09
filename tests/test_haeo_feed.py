@@ -67,7 +67,6 @@ def _coordinator(hass, *, buy=None, sell=None, buy_forecast=None, sell_forecast=
             sell_forecast=sell_forecast or [],
             buy_history=[],
             sell_history=[],
-            v1_history=None,
             market_stats=None,
             last_update=datetime.now(timezone.utc),
         )

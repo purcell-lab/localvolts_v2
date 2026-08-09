@@ -90,6 +90,3 @@ ATTR_NODES = "nodes"
 # a consumer ever needs the band over time.
 ATTR_SELL_PRICE = "sellPrice"
 
-# Optional, separate LocalVolts v1 credential pair. A v1 key is not usable on v2.
-CONF_V1_API_KEY = "v1_api_key"
-CONF_V1_PARTNER_ID = "v1_partner_id"

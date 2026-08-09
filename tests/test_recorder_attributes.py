@@ -15,8 +15,6 @@ from custom_components.localvolts_v2.const import (
     CONF_API_KEY,
     CONF_NMI,
     CONF_PARTNER_ID,
-    CONF_V1_API_KEY,
-    CONF_V1_PARTNER_ID,
     DOMAIN,
     FORECAST_FIELDS,
 )
@@ -223,8 +221,6 @@ async def _all_entities(hass):
             CONF_NMI: "40012345678",
             CONF_API_KEY: "key",
             CONF_PARTNER_ID: "1",
-            CONF_V1_API_KEY: "v1key",
-            CONF_V1_PARTNER_ID: "2",
         },
     )
     entry.add_to_hass(hass)
@@ -251,7 +247,6 @@ async def _all_entities(hass):
             sell_forecast=[sell],
             buy_history=[buy],
             sell_history=[sell],
-            v1_history=[{"intervalEnd": buy["intervalEnd"], "costsAll": 0.1}],
             market_stats={
                 "active_loads": 3,
                 "active_generators": 2,
