@@ -152,6 +152,31 @@ def matched_price(record: dict[str, Any]) -> float | None:
     return cost / matched_energy
 
 
+def spot_price(record: dict[str, Any]) -> float | None:
+    """Return the spot settled price in $/kWh, or None when fully matched.
+
+    The spot leg covers the share of the interval no peer took, which is
+    ``volume * (1 - proportionP2P)``. As that share approaches zero the
+    quotient becomes unstable, and at a proportionP2P of exactly 1.0 there is
+    no spot exposure to price at all, so those intervals report None.
+
+    This is the other half of the pair with matched_price. Together they
+    reconstruct rateAllVar: on the export side the proportion weighted blend of
+    the two reproduced rateAllVar to within floating point on all 84 matched
+    forecast intervals of 2026-08-10, and on the import side it did the same
+    once a constant 17.5313 c/kWh network and retail layer was added, on all 31.
+    """
+    proportion = _as_float(record, "proportionP2P")
+    volume = _as_float(record, "volume")
+    cost = _as_float(record, "spotCost")
+    if proportion is None or volume is None or cost is None:
+        return None
+    spot_energy = volume * (1.0 - proportion)
+    if spot_energy <= 0:
+        return None
+    return cost / spot_energy
+
+
 def matched_proportion(record: dict[str, Any]) -> float | None:
     """Return the peer matched fraction of interval flow as a percentage."""
     proportion = _as_float(record, "proportionP2P")
@@ -299,6 +324,42 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         description="Effective all in variable export rate, for grid price_target_source",
         value=lambda record: cents_to_dollars(record, "rateAllVar"),
     ),
+    # The spot leg. rateAllVar already blends this with the matched leg, so
+    # these are published to make the blend visible, not to be summed with it.
+    #
+    # Trust these on forecast rows and treat them as indicative once settled.
+    # On the 206 Fcst rows of 2026-08-10 the blend reproduced rateAllVar on 204
+    # per direction. On the 83 settled Exp rows of the same day it reproduced
+    # none of them, scattering 12.68 to 21.66 c/kWh on import and negative on
+    # export. The supplied specification also warns that spotCost is unreliable
+    # once settled, though the 1050 times inflation it describes did not appear
+    # in this sample. Since the current interval is usually settled, the state
+    # of these two entities is the weaker number and the forecast attribute is
+    # the sound one.
+    HaeoFeedDefinition(
+        key="buy_spot_rate",
+        name="Buy Spot Rate",
+        unit=UNIT_DOLLAR_PER_KWH,
+        direction=DIRECTION_BUY,
+        source="spotCost",
+        description=(
+            "Spot settled import rate on the unmatched share, None when fully matched. "
+            "Reliable on forecast rows, indicative once the interval settles"
+        ),
+        value=spot_price,
+    ),
+    HaeoFeedDefinition(
+        key="sell_spot_rate",
+        name="Sell Spot Rate",
+        unit=UNIT_DOLLAR_PER_KWH,
+        direction=DIRECTION_SELL,
+        source="spotCost",
+        description=(
+            "Spot settled export rate on the unmatched share, None when fully matched. "
+            "Reliable on forecast rows, indicative once the interval settles"
+        ),
+        value=spot_price,
+    ),
     # flexDown was byte for byte the exact negation of flexUp across all 1730
     # records in the validation window, so it is not published as a separate
     # signal. Negate flexUp if the opposite sign is wanted.
@@ -313,11 +374,39 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     ),
     HaeoFeedDefinition(
         key="sell_matched_cost",
-        name="Sell Matched Cost",
+        name="Sell P2P Matched Cost",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_SELL,
         source="matchedCost",
         description="Peer matched export rate, None when no energy matched in the interval",
+        value=matched_price,
+    ),
+    # The import side equivalent. An earlier revision of this comment called it
+    # unverified on the grounds that it did not reconcile to the trading
+    # portal's 32.2924 c/kWh. That comparison was wrong: the portal figure is a
+    # delivered rate and matchedCost is energy only, and the two differ by the
+    # import network and retail layer. Net that off and 32.2924 becomes 14.7469,
+    # inside the contracted band.
+    #
+    # The field is arithmetically sound. The proportion weighted blend of this
+    # and the spot leg reproduced rateAllVar on all 31 matched import intervals
+    # of 2026-08-10, once the constant layer was added, with a residual spread
+    # of 1e-4 c/kWh.
+    #
+    # What is still open is the spread of the values. Four midday intervals sat
+    # at 11.0147 and 12.5401 to 12.5403 c/kWh, near the contracted 12.0 and
+    # 13.0, but 27 evening intervals ran from 30.72 to 47.23 c/kWh, which match
+    # no contract in the portal. See docs/p2p-forecast.md.
+    HaeoFeedDefinition(
+        key="buy_matched_cost",
+        name="Buy P2P Matched Cost",
+        unit=UNIT_DOLLAR_PER_KWH,
+        direction=DIRECTION_BUY,
+        source="matchedCost",
+        description=(
+            "Peer matched import rate, None when no energy matched in the interval. "
+            "Energy only, it excludes the import network and retail layer"
+        ),
         value=matched_price,
     ),
     # Quantities. These describe the flow LocalVolts has projected or matched.
@@ -325,7 +414,7 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     # dashboard, not on the whole of grid power limit.
     HaeoFeedDefinition(
         key="sell_proportion_p2p",
-        name="Sell Proportion P2P",
+        name="Sell P2P Proportion",
         unit=UNIT_PERCENT,
         direction=DIRECTION_SELL,
         source="proportionP2P",
@@ -333,12 +422,30 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=matched_proportion,
     ),
     HaeoFeedDefinition(
+        key="buy_proportion_p2p",
+        name="Buy P2P Proportion",
+        unit=UNIT_PERCENT,
+        direction=DIRECTION_BUY,
+        source="proportionP2P",
+        description="Share of import volume matched to a peer",
+        value=matched_proportion,
+    ),
+    HaeoFeedDefinition(
         key="sell_matched_power",
-        name="Sell Matched Power",
+        name="Sell P2P Matched Power",
         unit=UNIT_KILOWATT,
         direction=DIRECTION_SELL,
         source="volume x proportionP2P",
         description="Peer matched export as average power, a candidate limit for a premium offer tier",
+        value=matched_power,
+    ),
+    HaeoFeedDefinition(
+        key="buy_matched_power",
+        name="Buy P2P Matched Power",
+        unit=UNIT_KILOWATT,
+        direction=DIRECTION_BUY,
+        source="volume x proportionP2P",
+        description="Peer matched import as average power, a projection of matched flow and not a capability limit",
         value=matched_power,
     ),
     HaeoFeedDefinition(

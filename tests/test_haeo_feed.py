@@ -32,6 +32,7 @@ from custom_components.localvolts_v2.haeo_feed import (
     interval_start,
     matched_power,
     matched_price,
+    spot_price,
     volume_power,
 )
 
@@ -50,6 +51,7 @@ def _record(direction: str, **values) -> dict:
         "flexDown": -30.0672163,
         "proportionP2P": 0.0,
         "matchedCost": 0.0,
+        "spotCost": 0.02059,
         "amountAll": 0.02602972,
         **values,
     }
@@ -385,3 +387,178 @@ def test_the_device_name_carries_no_meter_identifier():
     # The version digit in "v2" is fine. A run of digits long enough to be an
     # NMI is not, which is what this guards against.
     assert not re.search(r"\d{4,}", DEVICE_NAME)
+
+
+# --- peer to peer symmetry -------------------------------------------------
+
+
+def test_every_peer_matched_field_is_published_for_both_directions():
+    """Both trading directions carry peer matching, so both must be published.
+
+    An earlier revision published the sell side only, on the strength of
+    proportionP2P being zero across every Buy record in the sample window.
+    That was an absence of evidence from an API whose forecast had been built
+    before any buy contract existed. On 2026-08-10 the Buy direction carried 31
+    matched intervals totalling 0.3343 kWh, so the asymmetry was never a
+    property of the market.
+    """
+    by_source: dict[str, set[str]] = {}
+    for definition in HAEO_FEEDS:
+        if definition.source in ("matchedCost", "proportionP2P", "volume x proportionP2P"):
+            by_source.setdefault(definition.source, set()).add(definition.direction)
+
+    assert by_source, "no peer matched feeds found"
+    for source, directions in by_source.items():
+        assert directions == {"Buy", "Sell"}, f"{source} publishes {sorted(directions)} only"
+
+
+def test_every_peer_matched_name_says_p2p():
+    """A name like Sell Matched Cost does not say what kind of match it is."""
+    for definition in HAEO_FEEDS:
+        if definition.source in ("matchedCost", "proportionP2P", "volume x proportionP2P"):
+            assert "P2P" in definition.name, definition.name
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_buy_side_peer_sensors_report_a_matched_import(hass):
+    """A matched Buy interval must produce values, not None.
+
+    Modelled on a real interval from 2026-08-10, volume 0.1017 kWh at a
+    proportionP2P of 0.19, which is the largest matched share observed on the
+    import side that day.
+    """
+    buy = _record("Buy", volume=0.1017, proportionP2P=0.19, matchedCost=0.006642)
+    sensors = _sensors(hass, buy=buy)
+
+    matched_energy = 0.1017 * 0.19
+    assert sensors["buy_proportion_p2p"].native_value == pytest.approx(19.0)
+    assert sensors["buy_matched_power"].native_value == pytest.approx(
+        matched_energy / (5 / 60)
+    )
+    assert sensors["buy_matched_cost"].native_value == pytest.approx(
+        0.006642 / matched_energy
+    )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_buy_side_peer_sensors_report_none_when_nothing_matched(hass):
+    """An unmatched import must not read as a zero rate.
+
+    Returning 0.0 would tell an optimiser the import was free.
+    """
+    sensors = _sensors(hass, buy=_record("Buy"))
+
+    assert sensors["buy_matched_cost"].native_value is None
+    assert sensors["buy_matched_power"].native_value == pytest.approx(0.0)
+    assert sensors["buy_proportion_p2p"].native_value == pytest.approx(0.0)
+
+
+def test_the_buy_matched_rate_says_it_excludes_the_network_layer():
+    """The import matched rate is energy only and must say so.
+
+    Compared naively against a delivered rate from the trading portal it looks
+    wrong by about 17.53 c/kWh, which is the import network and retail layer
+    the portal figure includes and this field does not. An earlier revision
+    read that difference as the field being unreliable. The description carries
+    the note so the next reader does not repeat the mistake.
+    """
+    definition = next(d for d in HAEO_FEEDS if d.key == "buy_matched_cost")
+    assert "Energy only" in definition.description
+
+
+# --- the spot leg and the blend it forms with the matched leg ---------------
+
+
+def test_the_spot_rate_prices_only_the_unmatched_share():
+    """spotCost covers the volume no peer took, not the whole interval."""
+    record = _record("Buy", volume=0.08, proportionP2P=0.25, spotCost=0.0042)
+
+    assert spot_price(record) == pytest.approx(0.0042 / (0.08 * 0.75))
+
+
+def test_a_fully_matched_interval_has_no_spot_rate():
+    """At a proportionP2P of 1.0 there is no spot exposure to price.
+
+    Zero would read as free energy and the quotient is undefined, so the only
+    correct answer is None. Export intervals do reach exactly 1.0 in practice,
+    so this is a live path and not a defensive branch.
+    """
+    record = _record("Sell", volume=0.08, proportionP2P=1.0, spotCost=0.0)
+
+    assert spot_price(record) is None
+
+
+def test_the_two_legs_reconstruct_the_effective_export_rate():
+    """The identity that says the pair is complete, on the export side.
+
+    Taken from a real matched export interval of 2026-08-10. If rateAllVar is
+    the proportion weighted blend of the matched and spot legs, then the two
+    legs plus the proportion account for the whole rate and nothing is missing
+    from the pair. Across all 84 matched export forecast intervals that day the
+    residual was zero to floating point.
+    """
+    record = _record(
+        "Sell",
+        volume=0.01363845,
+        proportionP2P=0.9483629,
+        matchedCost=0.0064671,
+        spotCost=9.244e-05,
+        rateAllVar=48.09593466,
+    )
+    proportion = record["proportionP2P"]
+
+    matched = matched_price(record) * 100
+    spot = spot_price(record) * 100
+    blend = proportion * matched + (1 - proportion) * spot
+
+    assert matched == pytest.approx(50.0)
+    assert blend == pytest.approx(record["rateAllVar"], abs=1e-3)
+
+
+def test_the_import_blend_is_short_by_the_network_layer():
+    """The same identity on the import side, which carries a constant adder.
+
+    Import pays a variable network and retail layer that export does not, so
+    the blend of the two energy legs sits below rateAllVar by a constant. On
+    2026-08-10 that constant was 17.5313 c/kWh on all 31 matched import
+    intervals, with a spread of 1e-4. The values here are one of those
+    intervals, the 01:40Z record.
+
+    This is asserted because it is the reason the import matched rate looks
+    wrong against a delivered rate quoted by the trading portal. If a future
+    API change folds the layer in, this test fails and the docs need revisiting
+    rather than the sensor being quietly wrong.
+    """
+    record = _record(
+        "Buy",
+        volume=0.0649571,
+        proportionP2P=0.09595256,
+        matchedCost=0.00078161,
+        spotCost=0.003139,
+        rateAllVar=23.56701577,
+    )
+
+    proportion = record["proportionP2P"]
+    blend = proportion * matched_price(record) * 100 + (1 - proportion) * spot_price(record) * 100
+
+    assert record["rateAllVar"] - blend == pytest.approx(17.5313, abs=1e-3)
+
+
+def test_both_directions_publish_a_spot_rate():
+    """The spot leg is half the blend, so neither direction may omit it."""
+    keys = {d.key for d in HAEO_FEEDS}
+    assert {"buy_spot_rate", "sell_spot_rate"} <= keys
+
+
+def test_the_spot_rate_says_where_it_can_be_trusted():
+    """The spot leg is only sound on forecast rows.
+
+    On 2026-08-10 the blend reproduced rateAllVar on 204 of 206 forecast rows
+    per direction and on none of the 83 settled rows. The current interval is
+    usually settled, so the state of these entities is the weaker number while
+    the forecast attribute is the sound one. Anyone reading the state needs to
+    know that, so the description has to say it.
+    """
+    for key in ("buy_spot_rate", "sell_spot_rate"):
+        definition = next(d for d in HAEO_FEEDS if d.key == key)
+        assert "forecast rows" in definition.description, key

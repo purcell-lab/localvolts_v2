@@ -1,9 +1,27 @@
-"""Matplotlib rendering for the LocalVolts v2 forecast camera."""
+"""Matplotlib rendering for the LocalVolts v2 forecast camera.
+
+Two stacked panels sharing one time axis.
+
+The upper panel carries the six price signals. Each direction has three: the
+peer matched leg, the spot settled leg, and the effective rate that blends them
+by proportionP2P. Keeping all six on one axis is what makes the blend legible,
+because the effective rate always sits between its own two legs, weighted by
+how much of the interval was matched.
+
+The flex incentive rides on the upper panel too. It is a c/kWh rate, so an axis
+in kW or in percent would misrepresent it, and it tracks the spot leg closely
+enough that the comparison is the useful thing to show. It is drawn thin and
+grey to keep it clearly subordinate to the six settlement prices.
+
+The lower panel carries the remaining forecasts, which are two units, so it is
+split across twin axes. Power in kW on the left, the matched percentage on the
+right.
+"""
 from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
-from typing import Any
+from typing import Any, Callable
 
 import matplotlib
 
@@ -12,6 +30,21 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
 from homeassistant.util import dt as dt_util
+
+# Reusing the feed derivations rather than restating them keeps the chart and
+# the sensors from drifting apart. A change to how a rate is derived then shows
+# up in both, and the tests that cover the derivations cover the chart too.
+from .haeo_feed import (
+    cents_to_dollars,
+    interval_hours,
+    matched_power,
+    matched_price,
+    matched_proportion,
+    spot_price,
+    volume_power,
+)
+
+CENTS_PER_DOLLAR = 100.0
 
 
 def _parse_local_time(value: Any) -> datetime | None:
@@ -47,81 +80,194 @@ def _configure_time_axis(axis: Any) -> None:
     axis.set_xlabel(f"Interval end ({dt_util.DEFAULT_TIME_ZONE})")
 
 
-def _series(records: list[dict[str, Any]]) -> tuple[list[datetime], list[float], list[tuple[datetime, float]]]:
-    """Build plot-ready times, rates, and P2P marker points."""
+def _cents(derive: Callable[[dict[str, Any]], float | None]):
+    """Adapt a feed derivation that returns $/kWh to the chart's c/kWh axis."""
+
+    def convert(record: dict[str, Any]) -> float | None:
+        value = derive(record)
+        return None if value is None else value * CENTS_PER_DOLLAR
+
+    return convert
+
+
+def _rate_all_var(record: dict[str, Any]) -> float | None:
+    """Read the effective blended rate, which the API already gives in c/kWh."""
+    try:
+        return float(record["rateAllVar"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _matched_energy(record: dict[str, Any]) -> float | None:
+    """Return peer matched energy in kWh for the interval."""
+    power = matched_power(record)
+    return None if power is None else power * interval_hours(record)
+
+
+def _extract(
+    records: list[dict[str, Any]],
+    derive: Callable[[dict[str, Any]], float | None],
+) -> tuple[list[datetime], list[float]]:
+    """Build a plot ready series, breaking the line where the value is absent.
+
+    A derivation returns None where the quantity is undefined, such as a
+    matched rate on an interval nothing matched. Those intervals must not be
+    plotted as zero, which would read as free energy, and must not be dropped
+    either, which is the subtler error: dropping them leaves matplotlib to join
+    the surviving points with a straight segment, drawing a peer match across
+    hours where none existed. A real render did exactly that, carrying a flat
+    50 c/kWh export match across six hours from a single matched interval.
+
+    Emitting NaN keeps the interval on the axis and breaks the line there, so a
+    gap in the plot means undefined.
+    """
     times: list[datetime] = []
-    rates: list[float] = []
-    p2p_points: list[tuple[datetime, float]] = []
+    values: list[float] = []
     for record in records:
         moment = _parse_local_time(record.get("intervalEnd"))
-        try:
-            rate = float(record["rateAllVar"])
-        except (KeyError, TypeError, ValueError):
-            continue
         if moment is None:
             continue
+        value = derive(record)
         times.append(moment)
-        rates.append(rate)
-        try:
-            if float(record.get("proportionP2P", 0)) > 0:
-                p2p_points.append((moment, rate))
-        except (TypeError, ValueError):
-            pass
-    return times, rates, p2p_points
+        values.append(float("nan") if value is None else value)
+    order = sorted(range(len(times)), key=times.__getitem__)
+    return [times[i] for i in order], [values[i] for i in order]
+
+
+# Each entry is the direction, the label, the derivation, the colour, the line
+# style, and a point marker.
+#
+# The marker is not decoration. Peer matching arrives as isolated five minute
+# intervals, and a lone value with a NaN on either side draws no line segment
+# at all, so a matched interval would vanish from a line only plot. Any series
+# that can be sparse carries a marker; the continuous ones do not, because on a
+# 210 interval horizon markers on a dense line are just noise.
+# Buy is drawn warm and sell cool, so direction reads from colour alone. Within
+# a direction the effective rate is solid and the two legs it blends are
+# dashed, so the blend reads from line style alone.
+_PRICE_SERIES: tuple[tuple[str, str, Callable[[dict[str, Any]], float | None], str, str, str], ...] = (
+    ("buy", "Buy effective", _rate_all_var, "#d62728", "-", ""),
+    ("buy", "Buy spot", _cents(spot_price), "#ff9896", "--", ""),
+    ("buy", "Buy P2P matched", _cents(matched_price), "#9467bd", ":", "o"),
+    ("sell", "Sell effective", _rate_all_var, "#2ca02c", "-", ""),
+    ("sell", "Sell spot", _cents(spot_price), "#98df8a", "--", ""),
+    ("sell", "Sell P2P matched", _cents(matched_price), "#8c564b", ":", "x"),
+)
+
+# flexUp is an incentive rate, not a price anything settles at, so it is listed
+# apart from the six even though it shares their axis.
+_INCENTIVE_SERIES: tuple[tuple[str, str, Callable[[dict[str, Any]], float | None], str, Any, str], ...] = (
+    (
+        "buy",
+        "Flex up incentive",
+        _cents(lambda record: cents_to_dollars(record, "flexUp")),
+        "#7f7f7f",
+        (0, (3, 1, 1, 1)),
+        "",
+    ),
+)
+
+_POWER_SERIES: tuple[tuple[str, str, Callable[[dict[str, Any]], float | None], str, str, str], ...] = (
+    ("buy", "Buy volume", volume_power, "#d62728", "-", ""),
+    ("sell", "Sell volume", volume_power, "#2ca02c", "-", ""),
+    ("buy", "Buy P2P matched power", matched_power, "#9467bd", "--", ""),
+    ("sell", "Sell P2P matched power", matched_power, "#8c564b", "--", ""),
+)
+
+_PROPORTION_SERIES: tuple[tuple[str, str, Callable[[dict[str, Any]], float | None], str, str, str], ...] = (
+    ("buy", "Buy P2P proportion", matched_proportion, "#9467bd", "-.", ""),
+    ("sell", "Sell P2P proportion", matched_proportion, "#8c564b", "-.", ""),
+)
+
+
+def _plot(axis: Any, series: tuple, sources: dict[str, list[dict[str, Any]]], width: float) -> list:
+    """Draw one group of series onto an axis and return the drawn handles."""
+    handles = []
+    for direction, label, derive, colour, style, marker in series:
+        times, values = _extract(sources[direction], derive)
+        # An all NaN series would still claim a legend entry while drawing
+        # nothing, so a signal that never resolved is left off entirely.
+        if not times or not any(value == value for value in values):
+            continue
+        line, = axis.plot(
+            times,
+            values,
+            label=label,
+            color=colour,
+            linestyle=style,
+            linewidth=width,
+            marker=marker or None,
+            markersize=4,
+        )
+        handles.append(line)
+    return handles
 
 
 def render_forecast_chart(
     buy_forecast: list[dict[str, Any]],
     sell_forecast: list[dict[str, Any]],
 ) -> bytes:
-    """Render LocalVolts Buy and Sell rate forecasts as an in-memory PNG."""
-    fig, axis = plt.subplots(figsize=(10, 5), dpi=100)
+    """Render the LocalVolts forecast as an in-memory PNG of two panels."""
+    fig, (price_axis, other_axis) = plt.subplots(
+        2,
+        1,
+        figsize=(10, 8),
+        dpi=100,
+        sharex=True,
+        gridspec_kw={"height_ratios": [3, 2]},
+    )
     try:
-        buy_times, buy_rates, buy_p2p = _series(buy_forecast)
-        sell_times, sell_rates, sell_p2p = _series(sell_forecast)
+        sources = {"buy": buy_forecast or [], "sell": sell_forecast or []}
 
-        if not buy_times and not sell_times:
-            axis.text(
+        price_handles = _plot(price_axis, _PRICE_SERIES, sources, 1.6)
+        price_handles += _plot(price_axis, _INCENTIVE_SERIES, sources, 0.9)
+
+        if not price_handles and not (sources["buy"] or sources["sell"]):
+            other_axis.set_axis_off()
+            price_axis.text(
                 0.5,
                 0.5,
                 "No forecast data available",
                 ha="center",
                 va="center",
-                transform=axis.transAxes,
+                transform=price_axis.transAxes,
                 fontsize=14,
             )
-            axis.set_axis_off()
+            price_axis.set_axis_off()
         else:
-            if buy_times:
-                axis.plot(buy_times, buy_rates, label="Buy rate", color="#d62728", linewidth=1.8)
-            if sell_times:
-                axis.plot(sell_times, sell_rates, label="Sell rate", color="#2ca02c", linewidth=1.8)
-            if buy_p2p:
-                axis.scatter(
-                    [point[0] for point in buy_p2p],
-                    [point[1] for point in buy_p2p],
-                    marker="o",
-                    s=22,
-                    color="#9467bd",
-                    label="Buy P2P matched",
-                    zorder=3,
-                )
-            if sell_p2p:
-                axis.scatter(
-                    [point[0] for point in sell_p2p],
-                    [point[1] for point in sell_p2p],
-                    marker="x",
-                    s=28,
-                    color="#8c564b",
-                    label="Sell P2P matched",
-                    zorder=3,
-                )
-            axis.set_ylabel("c/kWh")
-            _configure_time_axis(axis)
-            axis.grid(True, alpha=0.3)
-            axis.legend(loc="best")
+            price_axis.set_ylabel("c/kWh")
+            price_axis.set_title("Price signals, the spot and peer legs and the rate they blend to")
+            price_axis.grid(True, alpha=0.3)
+            if price_handles:
+                price_axis.legend(loc="upper left", fontsize=8, ncol=3)
 
-        axis.set_title("LocalVolts v2 Forecast")
+            # Power and percentage share a panel but not a scale, so the
+            # percentage gets its own axis on the right. Without this the
+            # proportion, which runs to 100, would flatten the power series,
+            # which runs to about 2.
+            proportion_axis = other_axis.twinx()
+            power_handles = _plot(other_axis, _POWER_SERIES, sources, 1.4)
+            proportion_handles = _plot(
+                proportion_axis, _PROPORTION_SERIES, sources, 1.2
+            )
+
+            other_axis.set_ylabel("kW")
+            proportion_axis.set_ylabel("P2P matched (%)")
+            proportion_axis.set_ylim(0, 105)
+            other_axis.set_title("Volume, peer matched flow, and matched share")
+            other_axis.grid(True, alpha=0.3)
+            handles = power_handles + proportion_handles
+            if handles:
+                other_axis.legend(
+                    handles,
+                    [handle.get_label() for handle in handles],
+                    loc="upper left",
+                    fontsize=8,
+                    ncol=2,
+                )
+            _configure_time_axis(other_axis)
+
+        fig.suptitle("LocalVolts v2 Forecast")
         fig.tight_layout()
         buffer = BytesIO()
         fig.savefig(buffer, format="png")

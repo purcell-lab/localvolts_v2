@@ -23,10 +23,12 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.localvolts_v2.forecast_chart import (
     _configure_time_axis,
+    _extract,
     _parse_local_time,
-    _series,
+    _rate_all_var,
     render_forecast_chart,
 )
+from custom_components.localvolts_v2.haeo_feed import matched_price
 
 BRISBANE_OFFSET_HOURS = 10
 
@@ -47,10 +49,19 @@ def brisbane_timezone():
 
 
 def _record(interval_end: str, rate: float, proportion: float = 0.0) -> dict:
+    volume = 0.07
     return {
         "intervalEnd": interval_end,
+        "intervalDuration": "5",
+        "intervalDurationUnits": "minutes",
         "rateAllVar": rate,
         "proportionP2P": proportion,
+        "volume": volume,
+        # A matched rate of exactly the quoted rate, so the derivation returns
+        # the same number the effective rate carries and the assertion below is
+        # about the timestamp rather than the arithmetic.
+        "matchedCost": volume * proportion * rate / 100.0,
+        "spotCost": 0.0,
     }
 
 
@@ -85,13 +96,18 @@ def test_a_matched_export_interval_lands_in_the_evening_peak() -> None:
     as 08:00, which is the morning solar trough, where matched export does not
     occur on this feed.
     """
-    times, rates, matched = _series([_record("2026-08-09T08:00:00Z", 50.0, 1.0)])
+    records = [_record("2026-08-09T08:00:00Z", 50.0, 1.0)]
+
+    times, rates = _extract(records, _rate_all_var)
+    matched_times, matched_rates = _extract(records, matched_price)
 
     assert rates == [50.0]
-    assert len(matched) == 1
-    matched_moment = matched[0][0]
+    assert matched_rates == pytest.approx([0.50])
+    assert len(matched_times) == 1
+    matched_moment = matched_times[0]
     assert matched_moment.hour == 18
     assert 17 <= matched_moment.hour <= 23
+    assert times == matched_times
 
 
 def test_the_axis_draws_ticks_in_the_timezone_its_label_claims() -> None:

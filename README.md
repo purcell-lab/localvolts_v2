@@ -46,24 +46,39 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
 | V1-V2 Daily Cost Delta | Created only when both optional v1 credentials are supplied. State is today's v1 `costsAll` minus v2 settled Buy `amountAll`, with both totals in attributes. |
-| Forecast Chart camera | Cached PNG chart of Buy and Sell forecast `rateAllVar` values. P2P-matched intervals are marked separately. |
+| Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
 
 ### Single signal sensors
 
-Eight further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
+Thirteen further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
+
+Six of them are prices, three per direction. Every interval settles in two parts, the share a peer took and the share the market settled, so each direction has a peer matched rate, a spot rate, and the effective rate that blends them.
 
 | Entity | Unit | Direction | Field |
 |---|---|---|---|
-| Buy Rate All Var | `$/kWh` | Buy | `rateAllVar` |
-| Sell Rate All Var | `$/kWh` | Sell | `rateAllVar` |
+| Buy Rate All Var | `$/kWh` | Buy | `rateAllVar`, the blend |
+| Sell Rate All Var | `$/kWh` | Sell | `rateAllVar`, the blend |
+| Buy P2P Matched Cost | `$/kWh` | Buy | `matchedCost` over matched volume |
+| Sell P2P Matched Cost | `$/kWh` | Sell | `matchedCost` over matched volume |
+| Buy Spot Rate | `$/kWh` | Buy | `spotCost` over unmatched volume |
+| Sell Spot Rate | `$/kWh` | Sell | `spotCost` over unmatched volume |
 | Buy Flex Up | `$/kWh` | Buy | `flexUp` |
-| Sell Matched Cost | `$/kWh` | Sell | `matchedCost` |
-| Sell Proportion P2P | `%` | Sell | `proportionP2P` |
-| Sell Matched Power | `kW` | Sell | `volume` times `proportionP2P` |
+| Buy P2P Proportion | `%` | Buy | `proportionP2P` |
+| Sell P2P Proportion | `%` | Sell | `proportionP2P` |
+| Buy P2P Matched Power | `kW` | Buy | `volume` times `proportionP2P` |
+| Sell P2P Matched Power | `kW` | Sell | `volume` times `proportionP2P` |
 | Buy Volume Power | `kW` | Buy | `volume` |
 | Sell Volume Power | `kW` | Sell | `volume` |
+
+Every peer matched entity carries `P2P` in its name, so a peer signal is distinguishable from an ordinary rate or volume at a glance.
+
+The three prices in a direction are not independent. `rateAllVar` is already the blend of the other two, weighted by `proportionP2P`, so adding a leg to the same optimizer field as the effective rate double counts it. Choose one.
+
+Two cautions on the derived rates. Both are energy only and exclude the import network and retail layer, so an import matched rate reads about 17.5 c/kWh below a delivered rate quoted by the trading portal. And the spot rates are sound on forecast rows but only indicative once an interval settles, which means the state of those two entities is the weaker number while the forecast attribute is the sound one. Both are quantified in the [peer to peer forecast notes](docs/p2p-forecast.md).
+
+A matched rate is `none` when nothing matched and a spot rate is `none` when the interval matched in full. Neither is reported as zero, which would read as free energy.
 
 Three conventions are deliberate.
 
@@ -79,9 +94,15 @@ If your optimizer sums every entity assigned to a field rather than choosing bet
 
 ### Forecast chart
 
-The camera entity renders Buy and Sell `rateAllVar` locally in Home Assistant and caches the PNG in memory. Intervals with peer matched export are marked, which makes the matched export rate visible as a flat ceiling against the varying Sell rate.
+The camera entity renders the forecast locally in Home Assistant and caches the PNG in memory. It is two panels on a shared time axis.
 
-![Buy and Sell rate forecast with peer matched intervals marked](docs/forecast_chart.png)
+The upper panel carries the six price signals. Buy is warm and sell is cool, so direction reads from colour. The effective rate is solid and the two legs it blends are dashed and dotted, so the blend reads from line style: each effective rate sits between its own spot and matched legs, pulled toward whichever one took more of the interval. The flex up incentive rides on the same axis, thin and grey, because it is also a c/kWh rate.
+
+The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
+
+![Two panel forecast chart, six price signals above and volumes with matched share below](docs/forecast_chart.png)
+
+Peer matched series carry point markers rather than lines alone. Matching arrives as isolated five minute intervals, so a match with nothing either side draws no line segment and would otherwise be invisible. Intervals where a quantity is undefined are drawn as a break in the line rather than dropped, because dropping them lets the plot join across the gap and draw a match that never happened.
 
 Rendered from a real 24 hour window at a single residential premises in south east Queensland. The chart carries no meter identifier, so it is safe to share.
 
@@ -134,8 +155,11 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers.
 - v2 may return `HTTP 200` with an array error body such as `Not Authenticated` or `Not Authorised`. The integration inspects successful bodies for these errors.
 - v2 historical data is limited to approximately three days and forecast data is limited to approximately one day ahead, usually through the end of the current local day. The coordinator requests from two local calendar days ago through tomorrow.
-- `spotCost` is unreliable on settled `Exp` and `Act` intervals. The supplied specification observed it inflated by about 1050 times. Treat it as forecast-only unless independently reconciled.
+- `spotCost` is unreliable on settled `Exp` and `Act` intervals. The supplied specification observed it inflated by about 1050 times. That inflation did not appear in a sample of 83 settled intervals taken on 2026-08-10, where the values looked plausible, but they still failed a reconciliation that all 206 forecast intervals of the same day passed. Treat `spotCost` as forecast-only either way.
+- `rateAllVar` is the proportion weighted blend of the peer matched rate and the spot rate, plus a constant variable network and retail layer on import. Measured on forecast rows only. See the [peer to peer forecast notes](docs/p2p-forecast.md) for the arithmetic and the residuals.
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
+
+For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
 
 ## Development
 
