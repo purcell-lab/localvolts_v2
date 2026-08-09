@@ -65,7 +65,28 @@ side peer trading does not happen.
 | `Sell` | 190 of 865 |
 | `Buy` | 0 of 865 |
 
-Verified against a confirmed buy trade. On 2026-08-09 a `Buy` trade was Confirmed in the
+### Proven by reconciliation, with the sell side as a positive control
+
+The strongest evidence comes from a single pull at 18:04 local on 2026-08-09, compared
+against the trading portal's own trade list for the same day, read at 18:02:30.
+
+| Side | Portal | API, same pull | Agreement |
+|---|---|---|---|
+| Sell | 9 counterparties, volumes summing to 0.38 kWh, all at 50 c/kWh | 56 matched intervals, 0.3567 kWh matched energy, derived rate **50.0000 c/kWh** | rate exact, volume within the portal's 2 decimal rounding |
+| Buy | 1 counterparty, 0.29 kWh, **32.2924 c/kWh** | 0 matched intervals, `proportionP2P` and `matchedCost` both `[0.0]` | **nothing reported** |
+
+The sell row is the control and it validates the method. The derivation
+`matchedCost / (volume * proportionP2P)` reproduces the portal's sell price to four
+decimal places, so the derivation is correct and the endpoint does report peer matching
+accurately when it reports it at all.
+
+Against that control, the buy row cannot be explained by a bad derivation, a wrong
+window or a timezone error. The buy trades occurred after 17:00 local. Of the 85 buy
+intervals from 17:00 onward, 14 were already settled, and across those and the whole day
+the distinct value sets remain `proportionP2P = [0.0]` and `matchedCost = [0.0]`. The
+portal's buy rate of 32.2924 c/kWh appears in no field of any of the 578 records.
+
+### Earlier confirmation from a trade detail view On 2026-08-09 a `Buy` trade was Confirmed in the
 trading portal with a delivery window opening that same day, 3.39 kWh contracted and
 1.2611 kWh already dealt, 37.20 per cent of the contracted volume. Portal per interval
 figures showed an initial bid of 0.0962 kWh against 0.0987 kWh dealt with nothing left
@@ -209,8 +230,13 @@ for matched energy, not on a power limit.
 - Live API responses from `https://api2.localvolts.com/v2/customer/interval`,
   `https://api2.localvolts.com/v2/market/stats` and
   `https://api2.localvolts.com/v1/customer/interval`, 2026-08-09.
-- Confirmed buy trade figures read from the LocalVolts trading portal trade detail view,
-  2026-08-09. There is no trades or orders endpoint on this API, 12 candidate paths all
+- Confirmed buy trade figures read from the LocalVolts trading portal trade list and
+  trade detail views, 2026-08-09, at 11:26 and 18:02:30 local.
+- Historical reach is capped at 3 days in the past, and a range extending past the cap is
+  rejected rather than clamped, so each past day must be requested separately. Fully
+  settled days 7 and 8 August also show `Buy` `proportionP2P` of `[0.0]`, though both
+  predate the buy contracts and so cannot distinguish an API gap from an absence of
+  trades. There is no trades or orders endpoint on this API, 12 candidate paths all
   returned 404, so portal figures cannot be reconciled programmatically.
 - Field semantics and the error on 200 behaviour, `API_V2_SPECIFICATION.md` sections 4
   and 5.2.
