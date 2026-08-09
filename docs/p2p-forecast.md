@@ -156,12 +156,22 @@ glance.
 | `sensor.localvolts_v2_buy_matched_cost` | Buy P2P Matched Cost | derived from `matchedCost` | `$/kWh` | Yes |
 | `sensor.localvolts_v2_sell_matched_power` | Sell P2P Matched Power | derived, `volume x proportionP2P` | `kW` | Yes |
 | `sensor.localvolts_v2_buy_matched_power` | Buy P2P Matched Power | derived, `volume x proportionP2P` | `kW` | Yes |
+| `sensor.localvolts_v2_buy_spot_rate` | Buy Spot Rate | derived from `spotCost` | `$/kWh` | Yes |
+| `sensor.localvolts_v2_sell_spot_rate` | Sell Spot Rate | derived from `spotCost` | `$/kWh` | Yes |
 | `sensor.localvolts_v2_export_p2p_proportion` | Export P2P Proportion | `proportionP2P` | fraction, 0 to 1 | No |
-| `camera.localvolts_v2_forecast_chart` | Forecast Chart | `proportionP2P`, `rateAllVar` | image | Not applicable |
+| `camera.localvolts_v2_forecast_chart` | Forecast Chart | all of the above | image | Not applicable |
 
-The chart already plotted both directions before the buy sensors existed. Buy matches
-render as purple circles and sell matches as brown crosses, both positioned on their own
-rate line.
+The chart is two panels on a shared time axis. The upper panel carries the six price
+signals plus the flex up incentive, all in c/kWh, which is what makes the blend in
+section 4.1 legible: each effective rate sits between its own two legs. The lower panel
+carries the remaining forecasts, power in kW on the left axis and matched percentage on
+the right.
+
+Peer matched series are drawn with point markers, not just lines. Matching arrives as
+isolated five minute intervals, and an interval with no match on either side draws no
+line segment, so without a marker a real match would be invisible. Intervals where a
+quantity is undefined are plotted as a break in the line rather than dropped, because
+dropping them lets the plot join across the gap and draw a match that never happened.
 
 Peer matching also reaches Home Assistant a second way, through the `forecast` attribute
 on `sensor.localvolts_v2_current_buy_rate` and its sell counterpart, which carry
@@ -180,13 +190,17 @@ dashboard.
 
 ### Two things to watch
 
-**The buy matched rate does not reconcile and is marked unverified.** On the sell side
-`matchedCost / (volume * proportionP2P)` returns exactly 50.0000 c/kWh on every matched
-interval and matches the trading portal to four decimal places. The same derivation on
-the buy side returns 11.0147 to 47.2303 c/kWh with almost no repetition, and the portal's
-buy rate appears in no field of any record. `buy_matched_cost` is published for symmetry
-and carries the warning in its own description. Do not wire it to a price input until the
-spread is understood.
+**The matched rates are energy only, the portal quotes delivered.** An earlier revision
+of this document called `buy_matched_cost` unverified because it did not reconcile to the
+portal's 32.2924 c/kWh. That comparison was wrong. The portal figure includes the import
+network and retail layer and this field does not, and netting off the 17.5313 c/kWh
+constant leaves 14.7469 c/kWh, inside the contracted band. The field is arithmetically
+sound, as section 4.1 shows.
+
+What is still open is the spread. Four midday intervals sat at 11.0147 and 12.5401 to
+12.5403 c/kWh, close to the contracted 12.0 and 13.0, but 27 evening intervals ran from
+30.72 to 47.23 c/kWh and match no contract in the portal. The export side has no such
+problem, returning exactly 50.0000 c/kWh on every matched interval.
 
 **`sell_matched_cost` and `buy_matched_cost` are rates, not costs.** Both entities are named after the API field
 `matchedCost`, which is a dollar amount for the interval, but the value published is the
@@ -201,6 +215,37 @@ is omitted on intervals where nothing matched, because the rate is undefined the
 **`export_p2p_proportion` and `sell_proportion_p2p` read the same upstream field.** One
 is a fraction for dashboards, the other a percentage for the forecast parser. Kept
 separate deliberately, but do not treat them as two independent signals.
+
+### 4.1 The two legs reconstruct the effective rate
+
+Each interval carries two prices per direction, not one. `matchedCost` prices the share a
+peer took and `spotCost` prices the share the market settled, and `rateAllVar` is the
+blend of the two weighted by `proportionP2P`:
+
+```
+rateAllVar = proportionP2P * matchedRate + (1 - proportionP2P) * spotRate + k
+matchedRate = matchedCost / (volume * proportionP2P) * 100
+spotRate    = spotCost    / (volume * (1 - proportionP2P)) * 100
+```
+
+Measured on 2026-08-10 forecast rows:
+
+| Direction | Matched intervals | k | Residual spread |
+|---|---|---|---|
+| Sell | 84 | 0.0000 c/kWh | floating point |
+| Buy | 31 | 17.5313 c/kWh | 1e-4 c/kWh |
+
+`k` on the import side is the variable network and retail layer, which export does not
+pay. It also held on unmatched intervals, within the bound set by `spotCost` being
+published to six decimal places, on 177 of 179 import and 124 of 126 export intervals.
+Two per direction fell outside that bound on ordinary volumes and are unexplained.
+
+This is a fitted identity, not vendor documented behaviour. It is asserted in
+`tests/test_haeo_feed.py` against two real intervals so an API change that folds the
+layer in shows up as a test failure.
+
+Note `rateAllVar` is variable only. `amountFixed`, the daily supply charge share, sits
+outside it.
 
 ## 6. Request gotchas
 
