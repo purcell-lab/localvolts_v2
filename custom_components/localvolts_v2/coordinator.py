@@ -1,4 +1,4 @@
-"""DataUpdateCoordinator for LocalVolts v2, with optional v1 comparison data."""
+"""DataUpdateCoordinator for LocalVolts v2."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +11,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import LocalVoltsClient, parse_interval_end
-from .api_v1 import LocalVoltsV1Client
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DIRECTION_BUY,
@@ -34,7 +33,6 @@ class LocalVoltsData:
     sell_forecast: list[dict[str, Any]]
     buy_history: list[dict[str, Any]]
     sell_history: list[dict[str, Any]]
-    v1_history: list[dict[str, Any]] | None
     market_stats: dict[str, Any] | None
     last_update: datetime
 
@@ -100,7 +98,7 @@ def _current_record(
 
 
 class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
-    """Poll v2 as primary and optional v1 data as a non-fatal supplement."""
+    """Poll the v2 interval feed and the market statistics snapshot."""
 
     def __init__(
         self,
@@ -108,7 +106,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         client: LocalVoltsClient,
         nmi: str,
         scan_interval: timedelta = DEFAULT_SCAN_INTERVAL,
-        v1_client: LocalVoltsV1Client | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -117,7 +114,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             update_interval=scan_interval,
         )
         self.client = client
-        self.v1_client = v1_client
         self.nmi = nmi
 
     async def _async_update_data(self) -> LocalVoltsData:
@@ -145,23 +141,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             [record for record in records if record.get("direction") == DIRECTION_SELL]
         )
 
-        v1_history: list[dict[str, Any]] | None = None
-        if self.v1_client is not None:
-            # v1 needs its own narrower window. It rejects anything 24 hours or
-            # wider, so the multi day v2 window fails outright there. The only
-            # consumer is the daily cost comparison, so ask for the local day
-            # and stop one second short of the boundary.
-            day_start = dt_util.start_of_local_day()
-            day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
-            try:
-                v1_history = await self.v1_client.fetch_interval(
-                    self.nmi, day_start, day_end
-                )
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.warning(
-                    "LocalVolts v1 interval fetch failed (non-fatal): %s", exc
-                )
-
         now = datetime.now(timezone.utc)
         market_stats: dict[str, Any] | None
         try:
@@ -181,7 +160,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             sell_history=[
                 record for record in sell_records if record.get("quality") in SETTLED_QUALITIES
             ],
-            v1_history=v1_history,
             market_stats=market_stats,
             last_update=now,
         )

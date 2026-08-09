@@ -36,11 +36,11 @@ The UI config flow asks for the following values:
 
 That is the whole form. One credential pair reaches both payloads.
 
-Earlier versions asked for a second, separate v1 pair, on the understanding that a v1 key was not valid for v2 and a v2 key was not valid for v1. The v1 payload is served by the v2 host under the v1 path, and the v2 credential authenticates it. Checked on 2026-08-09 over a 23 hour window, `api2.localvolts.com/v1` with the v2 credential and `api.localvolts.com/v1` with a separate v1 credential both returned 277 records carrying the same 49 fields, and every field of every record matched except `lastUpdate`, a response stamp that differed by seven seconds because the two calls were not simultaneous.
+Earlier versions asked for a second, separate v1 pair for a daily cost comparison sensor. Both the second pair and that sensor are gone, and v1 is no longer polled at all. The reasoning is in [the note on why v1 was dropped](#why-v1-was-dropped).
 
-Existing installations are migrated automatically. The stale second pair is removed from storage on upgrade, no entity is affected, and nothing needs to be reconfigured.
+Existing installations migrate automatically. The stale pair is removed from storage and the retired entity is deleted from the registry rather than left showing as unavailable. Nothing needs reconfiguring.
 
-The integration verifies connectivity by calling `/version`, then checks the supplied NMI through the v2 interval endpoint. If the v1 comparison fetch fails, the other entities continue to update and the comparison sensor stays unavailable until it returns.
+The integration verifies connectivity by calling `/version`, then checks the supplied NMI through the v2 interval endpoint.
 
 Use the integration's **Configure** action after setup to change the polling interval. The default is 300 seconds, matching the documented five-minute interval granularity. The minimum is 60 seconds.
 
@@ -56,7 +56,6 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Daily Earnings | Sum of today's settled Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
-| V1-V2 Daily Cost Delta | Today's v1 `costsAll` minus v2 settled Buy `amountAll`. **Currently not trustworthy, see below.** |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
@@ -144,31 +143,6 @@ response_variable: localvolts_window
 
 The response contains a `windows` list. Each result includes NMI, start/end timestamps, interval count, average `rateAllVar`, unit, and direction.
 
-## Why v1 data at all?
-
-Both payloads come from the same account and the same credential, so v1 costs nothing extra to read. Use v2 for invoice-oriented totals. Per the supplied reverse-engineered specification, `amountAll` and `amountFixed` are the more complete cost values, including information v1 misses such as P2P premium and part of the daily fee.
-
-### The comparison sensor is not trustworthy today
-
-Do not read the V1-V2 Daily Cost Delta as a dollar figure. Three faults compound, all found on 2026-08-10:
-
-1. **Unit mismatch.** v1 `costsAll` is in cents, declared `costsAllUnits: "cents"`. v2 `amountAll` is in dollars, declared `amountAllUnits: "$"`. The sensor subtracts one from the other and labels the result `$`.
-2. **Span mismatch.** It sums every v1 row for the local day against v2 settled rows only. v1 returns the whole day including forecast rows, so 198 of 287 rows were forecast, contributing about 72 percent of the v1 total. v1 carries its own `quality` flag, which the sensor does not filter on.
-3. **It has never run.** The v1 fetch was given a window v1 rejects, so it failed on every poll and the sensor had no data at all. Fixed separately.
-
-Together the first two would have published 803.13 against a like for like figure of 5.92, overstating the gap about 136 times.
-
-Corrected to settled rows only, matched interval by interval, and converted to a common unit, the same day gives v1 at $2.0706 against v2 at $2.1025 over 82 shared intervals. v1 sits 1.5 percent low, and the gap is in the fixed component, where v1 recorded $0.7034 against v2 $0.7737. That is the daily fee undercount described below, and it is the only thing this comparison was ever meant to show.
-
-The v1 feed can still be useful as a comparison source. Its `costsFlexUp` and `costsAllVarRate` support a spot-plus-energy-plus-certificate rate reconciliation that was observed to match invoices in tested intervals, while v2 `flexUp` and `rateAllVar` were not observed to provide that same reconciliation. The v1 comparison sensor should therefore be treated as diagnostic, not as the authoritative daily cost.
-
-Known v1 caveats from the supplied reverse-engineered comparison notes:
-
-- `costsAll` undercounts total cost. It misses the P2P premium entirely and approximately 24.7 cents per day of the LocalVolts daily fee in the observed data.
-- v1 uses a percent string for `importsAllZeroEE`; v2 uses a zero-to-one fraction for the comparable `zeroEE` field. Do not mix these units in templates.
-- v1 and v2 are two views of the same account, not two accounts. One credential pair reaches both.
-- v1 refuses any window of 24 hours or wider, including a bare pair of dates one day apart, and answers `'to' date cannot be more than 24 hours after 'from' date or current time`. v2 accepts the multi day window the coordinator uses, so the two clients are given different windows. v1 is asked for the local day only, which is all the comparison sensor needs.
-
 ## API behavior and limitations
 
 The following items come from the supplied reverse-engineered `API_V2_SPECIFICATION.md`:
@@ -182,6 +156,22 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
 
 For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
+
+## Why v1 was dropped
+
+Earlier versions polled the LocalVolts v1 interval feed and published a V1-V2 Daily Cost Delta sensor. Both are gone. Checking the sensor on 2026-08-10 found it wrong three separate ways.
+
+**It had never run.** The v1 fetch was handed the same multi day window the v2 fetch uses. v1 rejects any window of 24 hours or wider, including a bare pair of dates one day apart, answering `'to' date cannot be more than 24 hours after 'from' date or current time`. The failure was caught as non-fatal and logged, so the sensor simply never had data.
+
+**Its units did not match.** v1 `costsAll` is in cents, declared `costsAllUnits: "cents"`. v2 `amountAll` is in dollars, declared `amountAllUnits: "$"`. The sensor subtracted one from the other and labelled the result `$`.
+
+**Its two sides covered different spans.** It summed every v1 row for the local day against v2 settled rows only. v1 returns the whole day including forecast, so 198 of 287 rows were forecast, about 72 percent of the v1 total. v1 carries its own `quality` flag, which the sensor did not filter on.
+
+Had it run, the last two faults would have published 803.13 against a like for like figure of 5.92, overstating the gap about 136 times.
+
+The repair was straightforward, which is why it is worth recording what the repair would have bought. Restricted to settled rows and matched interval by interval in a common unit, that day gave v1 at $2.0706 against v2 at $2.1025 over 82 shared intervals. v1 sits 1.5 percent low, and the whole of the gap is in the fixed component, $0.7034 against $0.7737. That is the daily fee undercount, and it is the only thing the comparison ever showed.
+
+A second API call every polling cycle, a second failure mode, and a sensor that needs three paragraphs of explanation, to surface one number that does not change and is written down here instead. So v1 is no longer polled.
 
 ## Development
 

@@ -39,8 +39,6 @@ from .const import (
     ATTR_RATE_ALL_VAR,
     ATTR_SPOT_COST,
     ATTR_VOLUME,
-    CONF_V1_API_KEY,
-    CONF_V1_PARTNER_ID,
     DEVICE_CONFIGURATION_URL,
     DEVICE_MANUFACTURER,
     DEVICE_NAME,
@@ -124,8 +122,6 @@ async def async_setup_entry(
     # from the rate sensors because HAEO requires {"time", "value"} rows and a
     # single unit per entity.
     entities.extend(build_haeo_feed_sensors(coordinator, entry))
-    if entry.data.get(CONF_V1_API_KEY) and entry.data.get(CONF_V1_PARTNER_ID):
-        entities.append(LocalVoltsV1V2DailyCostComparisonSensor(coordinator, entry))
     async_add_entities(entities, update_before_add=True)
 
 
@@ -397,62 +393,3 @@ class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
         """Expose the market statistics snapshot as the API returned it."""
         stats = self.coordinator.data.market_stats if self.coordinator.data else None
         return dict(stats) if stats else {}
-
-
-class LocalVoltsV1V2DailyCostComparisonSensor(LocalVoltsSensorBase):
-    """Compare optional v1 costsAll with invoice-oriented v2 amountAll totals."""
-
-    # The two totals and their delta are worth recording. The explanatory
-    # strings around them are fixed and are not.
-    _unrecorded_attributes = frozenset({ATTR_CALCULATION, ATTR_CAVEAT})
-
-    _attr_native_unit_of_measurement = "$"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_v1_v2_daily_cost_delta"
-        self._attr_name = "V1-V2 Daily Cost Delta"
-
-    @staticmethod
-    def _today_total(records: list[dict[str, Any]], amount_key: str) -> float:
-        """Sum a LocalVolts amount field for today's interval-end date."""
-        today = dt_util.now().date()
-        total = 0.0
-        for record in records:
-            interval_end = _record_local_date(record)
-            amount = _number(record, amount_key)
-            if interval_end is not None and interval_end.date() == today and amount is not None:
-                total += amount
-        return round(total, 6)
-
-    @property
-    def native_value(self) -> float | None:
-        """Return v1 costsAll minus v2 Buy amountAll for today's settled data."""
-        data = self.coordinator.data
-        if data is None or data.v1_history is None:
-            return None
-        v1_total = self._today_total(data.v1_history, "costsAll")
-        v2_total = self._today_total(data.buy_history, ATTR_AMOUNT_ALL)
-        return round(v1_total - v2_total, 6)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose both totals and the known interpretation caveat."""
-        data = self.coordinator.data
-        if data is None or data.v1_history is None:
-            return {}
-        v1_total = self._today_total(data.v1_history, "costsAll")
-        v2_total = self._today_total(data.buy_history, ATTR_AMOUNT_ALL)
-        return {
-            "v1_costs_all": v1_total,
-            "v2_amount_all": v2_total,
-            "delta": round(v1_total - v2_total, 6),
-            ATTR_CALCULATION: (
-                "v1 costsAll minus v2 Buy amountAll over today's settled intervals"
-            ),
-            ATTR_CAVEAT: (
-                "v1 costsAll is known to undercount compared with v2 "
-                "invoice-oriented totals"
-            ),
-        }

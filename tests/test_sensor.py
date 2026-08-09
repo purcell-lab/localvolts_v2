@@ -1,4 +1,4 @@
-"""Sensor tests for interval attributes and conditional v1 comparison entity."""
+"""Sensor tests for interval attributes and entity creation."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -13,15 +13,12 @@ from custom_components.localvolts_v2.const import (
     CONF_API_KEY,
     CONF_NMI,
     CONF_PARTNER_ID,
-    CONF_V1_API_KEY,
-    CONF_V1_PARTNER_ID,
     DOMAIN,
 )
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
 from custom_components.localvolts_v2.sensor import (
     LocalVoltsCurrentBuyRateSensor,
     LocalVoltsDailyCostSensor,
-    LocalVoltsV1V2DailyCostComparisonSensor,
     async_setup_entry,
 )
 
@@ -53,7 +50,7 @@ def _record(direction: str, quality: str, **values) -> dict:
     }
 
 
-def _coordinator(hass, *, v1_history=None):
+def _coordinator(hass):
     coordinator = LocalVoltsCoordinator(hass, MagicMock(), "4001247247")
     buy = _record("Buy", "Exp")
     data = LocalVoltsData(
@@ -63,7 +60,6 @@ def _coordinator(hass, *, v1_history=None):
         sell_forecast=[_record("Sell", "Fcst")],
         buy_history=[buy],
         sell_history=[],
-        v1_history=v1_history,
         market_stats={"active_loads": 2, "active_generators": 1},
         last_update=datetime.now(timezone.utc),
     )
@@ -113,7 +109,6 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
             sell_forecast=[],
             buy_history=today + earlier,
             sell_history=[],
-            v1_history=None,
             market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
@@ -125,43 +120,3 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
     assert sensor.extra_state_attributes["settled_interval_count"] == 3
 
 
-@pytest.mark.usefixtures("enable_custom_integrations")
-async def test_sensor_setup_skips_v1_comparison_without_v1_credentials(hass):
-    """v2-only config entries create no broken v1 comparison entity."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={CONF_API_KEY: "apikey v2", CONF_PARTNER_ID: "partner", CONF_NMI: "4001247247"},
-    )
-    entry.runtime_data = SimpleNamespace(coordinator=_coordinator(hass))
-    entities = []
-
-    await async_setup_entry(hass, entry, lambda added, **kwargs: entities.extend(added))
-
-    assert not any(isinstance(entity, LocalVoltsV1V2DailyCostComparisonSensor) for entity in entities)
-
-
-@pytest.mark.usefixtures("enable_custom_integrations")
-async def test_sensor_setup_creates_v1_comparison_with_v1_credentials(hass):
-    """A v1 credential pair enables the v1 versus v2 daily-cost entity."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            CONF_API_KEY: "apikey v2",
-            CONF_PARTNER_ID: "partner",
-            CONF_NMI: "4001247247",
-            CONF_V1_API_KEY: "apikey v1",
-            CONF_V1_PARTNER_ID: "v1-partner",
-        },
-    )
-    entry.runtime_data = SimpleNamespace(
-        coordinator=_coordinator(hass, v1_history=[_record("Buy", "Exp", costsAll=0.10)])
-    )
-    entities = []
-
-    await async_setup_entry(hass, entry, lambda added, **kwargs: entities.extend(added))
-
-    comparison = next(
-        entity for entity in entities if isinstance(entity, LocalVoltsV1V2DailyCostComparisonSensor)
-    )
-    assert comparison.native_value == pytest.approx(-0.02)
-    assert comparison.extra_state_attributes["v1_costs_all"] == 0.10
