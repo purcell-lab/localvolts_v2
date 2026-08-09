@@ -34,7 +34,7 @@ The UI config flow asks for the following values:
 - **Partner ID**. The partner ID paired with that key.
 - **NMI**. The NMI that the key and partner ID are authorized to access.
 
-That is the whole form. One credential pair reaches both payloads.
+That is the whole form.
 
 Earlier versions asked for a second, separate v1 pair for a daily cost comparison sensor. Both the second pair and that sensor are gone, and v1 is no longer polled at all. The reasoning is in [the note on why v1 was dropped](#why-v1-was-dropped).
 
