@@ -10,7 +10,7 @@
           "nmi": "NMI"
         },
         "data_description": {
-          "api_key": "The one API key for this NMI. Enter the raw key or \"apikey <key>\".",
+          "api_key": "The one API key for this NMI. Enter the raw key, or prefix it with \"apikey \".",
           "partner_id": "The partner ID paired with that key.",
           "nmi": "The NMI authorized for this API key and partner ID."
         }
