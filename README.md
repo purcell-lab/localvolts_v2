@@ -1,6 +1,12 @@
 # LocalVolts v2 for Home Assistant
 
-A Home Assistant custom integration for LocalVolts interval pricing, costs, P2P information, market statistics, and an in-memory forecast chart. LocalVolts v2 is the primary source. The optional LocalVolts v1 connection supplies comparison and reconciliation data only.
+A Home Assistant custom integration for LocalVolts interval pricing, costs, peer to peer information, market statistics, and a forecast chart rendered locally.
+
+![Two panel forecast chart, six price signals above and volumes with matched share below](docs/forecast_chart.png)
+
+Six price signals on top, three per direction, because every interval settles in two parts: the share a peer took and the share the market settled. The effective rate is the blend of the two, so each solid line sits between its own dashed and dotted legs. Volumes and matched share sit below on a shared time axis.
+
+Setup takes one API key, one partner ID, and your NMI.
 
 > **Important:** The LocalVolts v2 behavior described here is based on the reverse-engineered `API_V2_SPECIFICATION.md` supplied with this integration task, not official LocalVolts documentation. Validate billing-critical conclusions against LocalVolts documentation and invoices.
 
@@ -50,7 +56,7 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Daily Earnings | Sum of today's settled Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
-| V1-V2 Daily Cost Delta | Today's v1 `costsAll` minus v2 settled Buy `amountAll`, with both totals in attributes. |
+| V1-V2 Daily Cost Delta | Today's v1 `costsAll` minus v2 settled Buy `amountAll`. **Currently not trustworthy, see below.** |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
@@ -99,13 +105,11 @@ If your optimizer sums every entity assigned to a field rather than choosing bet
 
 ### Forecast chart
 
-The camera entity renders the forecast locally in Home Assistant and caches the PNG in memory. It is two panels on a shared time axis.
+The camera entity renders the forecast locally in Home Assistant and caches the PNG in memory. The chart is [at the top of this page](#localvolts-v2-for-home-assistant).
 
 The upper panel carries the six price signals. Buy is warm and sell is cool, so direction reads from colour. The effective rate is solid and the two legs it blends are dashed and dotted, so the blend reads from line style: each effective rate sits between its own spot and matched legs, pulled toward whichever one took more of the interval. The flex up incentive rides on the same axis, thin and grey, because it is also a c/kWh rate.
 
 The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
-
-![Two panel forecast chart, six price signals above and volumes with matched share below](docs/forecast_chart.png)
 
 Peer matched series carry point markers rather than lines alone. Matching arrives as isolated five minute intervals, so a match with nothing either side draws no line segment and would otherwise be invisible. Intervals where a quantity is undefined are drawn as a break in the line rather than dropped, because dropping them lets the plot join across the gap and draw a match that never happened.
 
@@ -140,9 +144,21 @@ response_variable: localvolts_window
 
 The response contains a `windows` list. Each result includes NMI, start/end timestamps, interval count, average `rateAllVar`, unit, and direction.
 
-## Why optional v1 data?
+## Why v1 data at all?
 
-Use v2 for invoice-oriented totals. Per the supplied reverse-engineered specification, `amountAll` and `amountFixed` are the more complete cost values, including information v1 misses such as P2P premium and part of the daily fee.
+Both payloads come from the same account and the same credential, so v1 costs nothing extra to read. Use v2 for invoice-oriented totals. Per the supplied reverse-engineered specification, `amountAll` and `amountFixed` are the more complete cost values, including information v1 misses such as P2P premium and part of the daily fee.
+
+### The comparison sensor is not trustworthy today
+
+Do not read the V1-V2 Daily Cost Delta as a dollar figure. Three faults compound, all found on 2026-08-10:
+
+1. **Unit mismatch.** v1 `costsAll` is in cents, declared `costsAllUnits: "cents"`. v2 `amountAll` is in dollars, declared `amountAllUnits: "$"`. The sensor subtracts one from the other and labels the result `$`.
+2. **Span mismatch.** It sums every v1 row for the local day against v2 settled rows only. v1 returns the whole day including forecast rows, so 198 of 287 rows were forecast, contributing about 72 percent of the v1 total. v1 carries its own `quality` flag, which the sensor does not filter on.
+3. **It has never run.** The v1 fetch was given a window v1 rejects, so it failed on every poll and the sensor had no data at all. Fixed separately.
+
+Together the first two would have published 803.13 against a like for like figure of 5.92, overstating the gap about 136 times.
+
+Corrected to settled rows only, matched interval by interval, and converted to a common unit, the same day gives v1 at $2.0706 against v2 at $2.1025 over 82 shared intervals. v1 sits 1.5 percent low, and the gap is in the fixed component, where v1 recorded $0.7034 against v2 $0.7737. That is the daily fee undercount described below, and it is the only thing this comparison was ever meant to show.
 
 The v1 feed can still be useful as a comparison source. Its `costsFlexUp` and `costsAllVarRate` support a spot-plus-energy-plus-certificate rate reconciliation that was observed to match invoices in tested intervals, while v2 `flexUp` and `rateAllVar` were not observed to provide that same reconciliation. The v1 comparison sensor should therefore be treated as diagnostic, not as the authoritative daily cost.
 
