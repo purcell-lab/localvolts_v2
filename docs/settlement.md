@@ -93,27 +93,10 @@ stamped `intervalEnd` midnight measures the last five minutes of the previous da
 the date from the end stamp would move it forward, leaving every day one interval short
 and permanently `partial`.
 
-## spotCost is exactly derivable, and an earlier claim here was wrong
+## spotCost is exactly derivable
 
-An earlier version of this document stated that `spotCost` does not track AEMO spot,
-citing 574 intervals of which none landed within 0.1 c/kWh. **That was wrong, and it was
-wrong twice over.** It is recorded here rather than quietly deleted, because both errors
-are easy to repeat.
-
-The first error was the reference region. The comparison used QLD1, when the premises is
-connected to a New South Wales distribution network, checked against the
-[AEMO NMI allocation list](https://www.aemo.com.au/-/media/files/electricity/nem/retail_and_metering/metering-procedures/nmi-allocation-list.pdf).
-The applicable region is NSW1. QLD1 and NSW1 correlate only 0.73 over the window tested,
-which is more than enough to make a correct field look broken.
-
-The lesson generalises: derive the region from the connection point, and if a field looks
-broken, check the reference before blaming the field.
-
-The second error was the denominator, and it is the subtler one. See below.
-
-### The actual relationship
-
-Against NSW1, `spotCost` is not approximately right, it is exact:
+`spotCost` is the one field that updates when a row is promoted from `Fcst` to `Exp`, so
+it is the only part of an elapsed row that reflects anything measured. It is exact.
 
 ```
 spotCost = RRP * lossFactor * gst * (1 - proportionP2P) * volume
@@ -133,29 +116,32 @@ Reproducing every elapsed interval from that formula:
 | Buy | 567 | 564 (99.5%) | $6.2e-08 |
 | Sell | 567 | 561 (98.9%) | $7.0e-09 |
 
-Errors of \$1e-08 on values of a few cents are floating point noise. A plain linear fit of
-the implied Buy rate against NSW1 RRP returns slope 1.15508, intercept 0.00002, and
-**R squared of 1.000000** with a maximum residual of 0.0006 c/kWh across 567 intervals.
-That slope factors cleanly as 1.0500680 loss factor times 1.10 GST. On the `Sell` side the
-ratio is 1.0501 with no GST, which is what you would expect, since AEMO spot is GST
-exclusive and an export is not a taxable supply for a residential customer.
+Errors around $1e-08 on values of a few cents are floating point noise. A plain linear fit
+of the implied `Buy` rate against the regional price returns slope 1.15508, intercept
+0.00002, and **R squared of 1.000000** with a maximum residual of 0.0006 c/kWh across 567
+intervals. That slope factors cleanly as 1.0500680 loss factor times 1.10 GST. On the
+`Sell` side the ratio is 1.0501 with no GST, which is what you would expect, since AEMO
+spot is GST exclusive and an export is not a taxable supply for a residential customer.
 
-### The denominator trap
+### Two ways to get this wrong
 
-`spotCost` is the cost of the part of the interval that settled at spot. `volume` is the
-whole interval. When some of the interval was matched peer to peer, dividing one by the
-other understates the spot rate, because the numerator excludes the matched share and the
-denominator does not.
+**The region.** Use the region of the connection point, taken from the distribution
+network, not the one the site appears to sit near. Adjacent regions can correlate as
+loosely as 0.73 over a couple of days, which is more than enough to make a correct field
+look broken. If a field looks wrong, check the reference before blaming the field.
 
-That single mistake accounts for the residual error:
+**The denominator.** This is the subtler one. `spotCost` is the cost of the part of the
+interval that settled at spot. `volume` is the whole interval. Where a peer took part of
+the interval, dividing one by the other understates the spot rate, because the numerator
+excludes the matched share and the denominator does not.
 
 | Direction | Total `spotCost` | Naive total ignoring `proportionP2P` | Error |
 |---|---|---|---|
 | Buy | $3.80940 | $3.80937 | 0.00% |
 | Sell | $0.41440 | $0.49472 | **+19.38%** |
 
-Buy is unaffected here only because this premises almost never matched on import. Export
-matched often, and the export error is large.
+Import is unaffected here only because this premises almost never matched on import.
+Export matched often, and the export error is large.
 
 This is very likely the mechanism behind a report from another household that spot export
 tracking came in around 5 percent off a real statement. The size of the discrepancy
@@ -164,9 +150,16 @@ are the same error at different match rates.
 
 ### What to use
 
-`spotCost` is sound and can be trusted. Read it as a dollar amount for the unmatched share
-of the interval, not as a rate. To recover a spot rate, divide by
-`volume * (1 - proportionP2P)`, not by `volume`.
+`spotCost` is sound and can be trusted on elapsed rows. Read it as a dollar amount for the
+unmatched share of the interval, not as a rate. To recover a spot rate, divide by
+`volume * (1 - proportionP2P)`, not by `volume`. This integration already does, in
+`spot_price`.
+
+A claim inherited from the supplied specification, that `spotCost` is inflated by about
+1050 times and should be treated as forecast-only, is not supported by any of this. The
+observed loss factor times 1000 is 1050.07, so that reading is consistent with a $/MWh
+against $/kWh unit error rather than a faulty field, though the original measurement was
+not available to confirm it.
 
 `amountAll` remains the right field for total cost, and satisfies
 `rateAllVar = amountVar / volume * 100` on every row checked.

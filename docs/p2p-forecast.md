@@ -5,8 +5,7 @@ it, and which entity to read for what. Both trading directions are covered, with
 important limitation on currency described in section 2.
 
 All findings below were verified against the live API and a running Home Assistant
-instance on 2026-08-09 and 2026-08-10, for a single residential premises in SE
-Queensland. Where
+instance on 2026-08-09 and 2026-08-10, for a single residential premises. Where
 something could not be verified it is marked as unverified rather than inferred.
 
 ## 1. Which endpoint carries the forecast

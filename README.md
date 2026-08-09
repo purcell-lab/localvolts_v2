@@ -114,7 +114,7 @@ The lower panel carries the remaining forecasts across twin axes, power in kW on
 
 Peer matched series carry point markers rather than lines alone. Matching arrives as isolated five minute intervals, so a match with nothing either side draws no line segment and would otherwise be invisible. Intervals where a quantity is undefined are drawn as a break in the line rather than dropped, because dropping them lets the plot join across the gap and draw a match that never happened.
 
-Rendered from a real 24 hour window at a single residential premises in south east Queensland. The chart carries no meter identifier, so it is safe to share.
+Rendered from a real 24 hour window at a single residential premises. The chart carries no meter identifier, so it is safe to share.
 
 ## Services
 
@@ -153,7 +153,7 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers.
 - v2 may return `HTTP 200` with an array error body such as `Not Authenticated` or `Not Authorised`. The integration inspects successful bodies for these errors.
 - v2 historical data is limited to approximately three days and forecast data is limited to approximately one day ahead, usually through the end of the current local day. The coordinator requests from two local calendar days ago through tomorrow.
-- `spotCost` was described in the supplied specification as unreliable on settled intervals, inflated by about 1050 times, and this README previously repeated that. **Measurement does not support it.** Against the correct regional reference price, `spotCost` reproduces exactly on elapsed `Exp` rows: `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, matching 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01%, with a linear fit R squared of 1.000000. It is sound on elapsed rows, not forecast-only. Note that the observed loss factor times 1000 is 1050.07, so the reported 1050 times inflation is consistent with a $/MWh against $/kWh unit error rather than a faulty field, though the original measurement was not available to confirm that. The trap that does catch people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate. See [docs/settlement.md](docs/settlement.md).
+- `spotCost` is exact on elapsed rows, following `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, which reproduces 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01% and fits with an R squared of 1.000000. The supplied specification described it as unreliable and inflated by about 1050 times; the observed loss factor times 1000 is 1050.07, so that reads as a $/MWh against $/kWh unit error rather than a faulty field. The trap that does catch people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate by 19.38% on export here. See [docs/settlement.md](docs/settlement.md).
 - `rateAllVar` is the proportion weighted blend of the peer matched rate and the spot rate, plus a constant variable network and retail layer on import. Measured on forecast rows only. See the [peer to peer forecast notes](docs/p2p-forecast.md) for the arithmetic and the residuals.
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
 
