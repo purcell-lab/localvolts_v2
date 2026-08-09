@@ -52,8 +52,10 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 |---|---|
 | Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Buy forecast. |
 | Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Sell forecast. |
-| Daily Cost | Sum of today's settled Buy `amountAll` records. |
-| Daily Earnings | Sum of today's settled Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
+| Daily Cost | Sum of today's elapsed Buy `amountAll` records. |
+| Daily Earnings | Sum of today's elapsed Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
+| Yesterday Cost | Previous local day total import cost, published with a settlement completeness account in its attributes. |
+| Yesterday Earnings | Previous local day total export earnings, with the same completeness account. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
@@ -156,6 +158,12 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
 
 For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
+
+## Settlement quality and what the totals are worth
+
+`Act` quality was never observed once in roughly 3,500 records across five days, and history is capped at three days, so settlement happens out of reach of this endpoint. Worse, promotion from `Fcst` to `Exp` was measured to rewrite only `spotCost`, leaving `amountAll`, `volume` and `proportionP2P` exactly as forecast. A full day of `Exp` is a promoted forecast, not a measurement.
+
+The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements, method and the `spotCost` accuracy comparison against AEMO are in [docs/settlement.md](docs/settlement.md).
 
 ## Why v1 was dropped
 

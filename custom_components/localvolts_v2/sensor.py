@@ -48,6 +48,7 @@ from .const import (
     FORECAST_FIELD_DIGITS,
     FORECAST_FIELDS,
     ATTR_SETTLED_INTERVAL_COUNT,
+    STATE_NO_DATA,
 )
 from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import build_haeo_feed_sensors
@@ -115,6 +116,12 @@ async def async_setup_entry(
         LocalVoltsCurrentSellRateSensor(coordinator, entry),
         LocalVoltsDailyCostSensor(coordinator, entry),
         LocalVoltsDailyEarningsSensor(coordinator, entry),
+        LocalVoltsYesterdayReconciliationSensor(
+            coordinator, entry, key="cost", label="Yesterday Cost"
+        ),
+        LocalVoltsYesterdayReconciliationSensor(
+            coordinator, entry, key="earnings", label="Yesterday Earnings"
+        ),
         LocalVoltsP2PProportionSensor(coordinator, entry),
         LocalVoltsMarketStatsSensor(coordinator, entry),
     ]
@@ -393,3 +400,92 @@ class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
         """Expose the market statistics snapshot as the API returned it."""
         stats = self.coordinator.data.market_stats if self.coordinator.data else None
         return dict(stats) if stats else {}
+
+
+class LocalVoltsYesterdayReconciliationSensor(LocalVoltsSensorBase):
+    """Yesterday's whole day total, published with how firm it is.
+
+    The daily sensors answer what today has cost so far and necessarily keep
+    moving. This answers a different question: now that the day is over, what
+    did it come to, and can that number be trusted yet. The two are separate
+    entities because the second is only meaningful once the first has stopped
+    changing.
+
+    The state is the total. Whether the total is final is the settlement_state
+    attribute, never folded into the number itself, because a partial day and a
+    cheap day both produce a small figure and nothing in the value distinguishes
+    them.
+    """
+
+    _attr_native_unit_of_measurement = "AUD"
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_suggested_display_precision = 2
+    # quality_breakdown is a dict and would be written to history on every poll.
+    # The scalar counts beside it carry the same information in a recordable
+    # shape, so the mapping is live only.
+    _unrecorded_attributes = frozenset(
+        {ATTR_CALCULATION, ATTR_DESCRIPTION, "quality_breakdown", "day"}
+    )
+
+    def __init__(
+        self,
+        coordinator: LocalVoltsCoordinator,
+        entry: ConfigEntry,
+        *,
+        key: str,
+        label: str,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._key = key
+        self._attr_name = label
+        self._attr_unique_id = f"{entry.entry_id}_yesterday_{key}"
+
+    @property
+    def _reconciliation(self):
+        """Return yesterday's reconciliation, or None before the first poll."""
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return data.yesterday.get(self._key)
+
+    @property
+    def available(self) -> bool:
+        """Stay unavailable while the day is genuinely unknown.
+
+        A day with no rows at all is not a zero dollar day, and publishing 0
+        would quietly corrupt any statistic built on this entity.
+        """
+        record = self._reconciliation
+        return (
+            super().available
+            and record is not None
+            and record.state != STATE_NO_DATA
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return yesterday's total, or None when the day is unknown."""
+        record = self._reconciliation
+        if record is None or record.state == STATE_NO_DATA:
+            return None
+        return record.total
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Describe the coverage and firmness behind the total."""
+        record = self._reconciliation
+        if record is None:
+            return {}
+        return {
+            "day": record.day.isoformat(),
+            "settlement_state": record.state,
+            "intervals_present": record.intervals_present,
+            "intervals_expected": record.intervals_expected,
+            "intervals_missing": record.intervals_missing,
+            "intervals_not_actual": record.intervals_not_actual,
+            "quality_breakdown": dict(record.quality_counts),
+            ATTR_CALCULATION: (
+                "sum(amountAll) over every interval of the previous local day"
+            ),
+            ATTR_DESCRIPTION: record.summary,
+        }

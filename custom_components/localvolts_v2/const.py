@@ -34,7 +34,25 @@ SERVICE_GET_CHEAPEST_WINDOW = "get_cheapest_window"
 DIRECTION_BUY = "Buy"
 DIRECTION_SELL = "Sell"
 QUALITY_FORECAST = "Fcst"
-SETTLED_QUALITIES = frozenset({"Exp", "Act"})
+QUALITY_EXPECTED = "Exp"
+QUALITY_ACTUAL = "Act"
+
+# Rows that describe an interval which has already elapsed. Exp is included
+# because nothing else is on offer: Act was not seen once in roughly 3,500
+# records across five days, and history is capped at three days, so a row that
+# is ever restated to Act is restated out of reach. Exp is an elapsed interval,
+# not a measured one. Promotion from Fcst to Exp was observed to rewrite only
+# spotCost, leaving amountAll, volume and proportionP2P exactly as forecast.
+ELAPSED_QUALITIES = frozenset({QUALITY_EXPECTED, QUALITY_ACTUAL})
+
+# Retained under the old name because it is the public shape other code reads.
+SETTLED_QUALITIES = ELAPSED_QUALITIES
+
+# How firm a day's total is, worst to best.
+STATE_NO_DATA = "no_data"
+STATE_PARTIAL = "partial"
+STATE_PROVISIONAL = "provisional"
+STATE_CONFIRMED = "confirmed"
 
 # Rates are cents per kWh and volumes are kWh, so the eight decimal places the
 # API returns carry no usable information and cost most of the payload size.
