@@ -313,11 +313,31 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     ),
     HaeoFeedDefinition(
         key="sell_matched_cost",
-        name="Sell Matched Cost",
+        name="Sell P2P Matched Cost",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_SELL,
         source="matchedCost",
         description="Peer matched export rate, None when no energy matched in the interval",
+        value=matched_price,
+    ),
+    # The import side equivalent, published for symmetry but not yet trusted.
+    # On 2026-08-10 the sell side derivation returned exactly 50.0000 c/kWh on
+    # every matched interval and reconciled to the trading portal to four
+    # decimal places. The same derivation on the buy side returned 11.0147 to
+    # 47.2303 c/kWh with almost no repetition, and the portal's buy rate of
+    # 32.2924 c/kWh appeared in no field of any record. Treat this as an
+    # unexplained signal and do not wire it to a price input until the spread
+    # is understood. See docs/p2p-forecast.md.
+    HaeoFeedDefinition(
+        key="buy_matched_cost",
+        name="Buy P2P Matched Cost",
+        unit=UNIT_DOLLAR_PER_KWH,
+        direction=DIRECTION_BUY,
+        source="matchedCost",
+        description=(
+            "Peer matched import rate, None when no energy matched in the interval. "
+            "Unverified, the derivation does not reconcile to the trading portal"
+        ),
         value=matched_price,
     ),
     # Quantities. These describe the flow LocalVolts has projected or matched.
@@ -325,7 +345,7 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     # dashboard, not on the whole of grid power limit.
     HaeoFeedDefinition(
         key="sell_proportion_p2p",
-        name="Sell Proportion P2P",
+        name="Sell P2P Proportion",
         unit=UNIT_PERCENT,
         direction=DIRECTION_SELL,
         source="proportionP2P",
@@ -333,12 +353,30 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         value=matched_proportion,
     ),
     HaeoFeedDefinition(
+        key="buy_proportion_p2p",
+        name="Buy P2P Proportion",
+        unit=UNIT_PERCENT,
+        direction=DIRECTION_BUY,
+        source="proportionP2P",
+        description="Share of import volume matched to a peer",
+        value=matched_proportion,
+    ),
+    HaeoFeedDefinition(
         key="sell_matched_power",
-        name="Sell Matched Power",
+        name="Sell P2P Matched Power",
         unit=UNIT_KILOWATT,
         direction=DIRECTION_SELL,
         source="volume x proportionP2P",
         description="Peer matched export as average power, a candidate limit for a premium offer tier",
+        value=matched_power,
+    ),
+    HaeoFeedDefinition(
+        key="buy_matched_power",
+        name="Buy P2P Matched Power",
+        unit=UNIT_KILOWATT,
+        direction=DIRECTION_BUY,
+        source="volume x proportionP2P",
+        description="Peer matched import as average power, a projection of matched flow and not a capability limit",
         value=matched_power,
     ),
     HaeoFeedDefinition(

@@ -385,3 +385,79 @@ def test_the_device_name_carries_no_meter_identifier():
     # The version digit in "v2" is fine. A run of digits long enough to be an
     # NMI is not, which is what this guards against.
     assert not re.search(r"\d{4,}", DEVICE_NAME)
+
+
+# --- peer to peer symmetry -------------------------------------------------
+
+
+def test_every_peer_matched_field_is_published_for_both_directions():
+    """Both trading directions carry peer matching, so both must be published.
+
+    An earlier revision published the sell side only, on the strength of
+    proportionP2P being zero across every Buy record in the sample window.
+    That was an absence of evidence from an API whose forecast had been built
+    before any buy contract existed. On 2026-08-10 the Buy direction carried 31
+    matched intervals totalling 0.3343 kWh, so the asymmetry was never a
+    property of the market.
+    """
+    by_source: dict[str, set[str]] = {}
+    for definition in HAEO_FEEDS:
+        if definition.source in ("matchedCost", "proportionP2P", "volume x proportionP2P"):
+            by_source.setdefault(definition.source, set()).add(definition.direction)
+
+    assert by_source, "no peer matched feeds found"
+    for source, directions in by_source.items():
+        assert directions == {"Buy", "Sell"}, f"{source} publishes {sorted(directions)} only"
+
+
+def test_every_peer_matched_name_says_p2p():
+    """A name like Sell Matched Cost does not say what kind of match it is."""
+    for definition in HAEO_FEEDS:
+        if definition.source in ("matchedCost", "proportionP2P", "volume x proportionP2P"):
+            assert "P2P" in definition.name, definition.name
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_buy_side_peer_sensors_report_a_matched_import(hass):
+    """A matched Buy interval must produce values, not None.
+
+    Modelled on a real interval from 2026-08-10, volume 0.1017 kWh at a
+    proportionP2P of 0.19, which is the largest matched share observed on the
+    import side that day.
+    """
+    buy = _record("Buy", volume=0.1017, proportionP2P=0.19, matchedCost=0.006642)
+    sensors = _sensors(hass, buy=buy)
+
+    matched_energy = 0.1017 * 0.19
+    assert sensors["buy_proportion_p2p"].native_value == pytest.approx(19.0)
+    assert sensors["buy_matched_power"].native_value == pytest.approx(
+        matched_energy / (5 / 60)
+    )
+    assert sensors["buy_matched_cost"].native_value == pytest.approx(
+        0.006642 / matched_energy
+    )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_buy_side_peer_sensors_report_none_when_nothing_matched(hass):
+    """An unmatched import must not read as a zero rate.
+
+    Returning 0.0 would tell an optimiser the import was free.
+    """
+    sensors = _sensors(hass, buy=_record("Buy"))
+
+    assert sensors["buy_matched_cost"].native_value is None
+    assert sensors["buy_matched_power"].native_value == pytest.approx(0.0)
+    assert sensors["buy_proportion_p2p"].native_value == pytest.approx(0.0)
+
+
+def test_the_buy_matched_rate_is_marked_unverified():
+    """The buy derivation does not reconcile to the trading portal.
+
+    Sell returns exactly 50.0000 c/kWh on every matched interval and matches
+    the portal to four decimal places. Buy returns 11.0147 to 47.2303 c/kWh
+    with almost no repetition. Until that is explained the description must
+    carry the warning, so anyone wiring it to a price input sees it first.
+    """
+    definition = next(d for d in HAEO_FEEDS if d.key == "buy_matched_cost")
+    assert "Unverified" in definition.description

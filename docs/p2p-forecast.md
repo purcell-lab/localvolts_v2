@@ -144,26 +144,51 @@ That quotient is unstable as matched energy approaches zero, so the integration 
 
 ## 5. Sensor mapping
 
-| Entity | Source | Unit | Forecast attribute |
-|---|---|---|---|
-| `sensor.localvolts_v2_sell_proportion_p2p` | `proportionP2P` | `%` | Yes |
-| `sensor.localvolts_v2_sell_matched_cost` | derived from `matchedCost` | `$/kWh` | Yes |
-| `sensor.localvolts_v2_sell_matched_power` | derived, `volume x proportionP2P` | `kW` | Yes |
-| `sensor.localvolts_v2_export_p2p_proportion` | `proportionP2P` | fraction, 0 to 1 | No |
-| `camera.localvolts_v2_forecast_chart` | `proportionP2P`, `rateAllVar` | image | Not applicable |
+Both directions are published. Every peer entity carries `P2P` in its friendly name, so
+peer matched signals are distinguishable from the ordinary rate and volume feeds at a
+glance.
+
+| Entity | Friendly name | Source | Unit | Forecast attribute |
+|---|---|---|---|---|
+| `sensor.localvolts_v2_sell_proportion_p2p` | Sell P2P Proportion | `proportionP2P` | `%` | Yes |
+| `sensor.localvolts_v2_buy_proportion_p2p` | Buy P2P Proportion | `proportionP2P` | `%` | Yes |
+| `sensor.localvolts_v2_sell_matched_cost` | Sell P2P Matched Cost | derived from `matchedCost` | `$/kWh` | Yes |
+| `sensor.localvolts_v2_buy_matched_cost` | Buy P2P Matched Cost | derived from `matchedCost` | `$/kWh` | Yes |
+| `sensor.localvolts_v2_sell_matched_power` | Sell P2P Matched Power | derived, `volume x proportionP2P` | `kW` | Yes |
+| `sensor.localvolts_v2_buy_matched_power` | Buy P2P Matched Power | derived, `volume x proportionP2P` | `kW` | Yes |
+| `sensor.localvolts_v2_export_p2p_proportion` | Export P2P Proportion | `proportionP2P` | fraction, 0 to 1 | No |
+| `camera.localvolts_v2_forecast_chart` | Forecast Chart | `proportionP2P`, `rateAllVar` | image | Not applicable |
+
+The chart already plotted both directions before the buy sensors existed. Buy matches
+render as purple circles and sell matches as brown crosses, both positioned on their own
+rate line.
+
+Peer matching also reaches Home Assistant a second way, through the `forecast` attribute
+on `sensor.localvolts_v2_current_buy_rate` and its sell counterpart, which carry
+`proportionP2P` on every forecast row. `matchedCost` is not among the published forecast
+fields, so a forward matched rate is available only from the derived sensors above.
 
 The forecast series is exposed as a `forecast` list attribute, with a matching
 `forecast_entries` count, in the shape a forecast parser expects. Every one of these
 sensors declares `interpolation_mode: previous`, so a value is held until the next
 interval rather than interpolated across it.
 
-Read `sensor.localvolts_v2_sell_proportion_p2p` for the forward series and
+Read `sensor.localvolts_v2_sell_proportion_p2p` or its buy counterpart for the forward
+series, and
 `sensor.localvolts_v2_export_p2p_proportion` for a plain current interval value on a
 dashboard.
 
 ### Two things to watch
 
-**`sell_matched_cost` is a rate, not a cost.** The entity is named after the API field
+**The buy matched rate does not reconcile and is marked unverified.** On the sell side
+`matchedCost / (volume * proportionP2P)` returns exactly 50.0000 c/kWh on every matched
+interval and matches the trading portal to four decimal places. The same derivation on
+the buy side returns 11.0147 to 47.2303 c/kWh with almost no repetition, and the portal's
+buy rate appears in no field of any record. `buy_matched_cost` is published for symmetry
+and carries the warning in its own description. Do not wire it to a price input until the
+spread is understood.
+
+**`sell_matched_cost` and `buy_matched_cost` are rates, not costs.** Both entities are named after the API field
 `matchedCost`, which is a dollar amount for the interval, but the value published is the
 derived rate in `$/kWh`. The name follows the upstream field for traceability while the
 value is the form an optimiser can use. Do not sum it and do not read it as money.
