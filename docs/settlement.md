@@ -1,8 +1,8 @@
 # Settlement quality, and what the daily totals are worth
 
 Every conclusion here was measured against the live v2 API for a single residential
-premises in SE Queensland on 2026-08-10, cross checked against AEMO QLD1 dispatch
-prices. Roughly 3,500 interval records spanning five local days. Where something is
+premises on 2026-08-10, cross checked against AEMO dispatch prices for the applicable
+region. Roughly 3,500 interval records spanning five local days. Where something is
 inferred rather than observed, it says so.
 
 ## The three qualities
@@ -100,12 +100,14 @@ citing 574 intervals of which none landed within 0.1 c/kWh. **That was wrong, an
 wrong twice over.** It is recorded here rather than quietly deleted, because both errors
 are easy to repeat.
 
-The first error was the reference region. The comparison used QLD1. The premises sits in
-the NMI block `4001`, which the
-[AEMO NMI allocation list](https://www.aemo.com.au/-/media/files/electricity/nem/retail_and_metering/metering-procedures/nmi-allocation-list.pdf)
-assigns to Essential Energy, a New South Wales network, so the applicable region is NSW1.
-QLD1 and NSW1 correlate only 0.73 over the window tested, which is more than enough to
-make a correct field look broken.
+The first error was the reference region. The comparison used QLD1, when the premises is
+connected to a New South Wales distribution network, checked against the
+[AEMO NMI allocation list](https://www.aemo.com.au/-/media/files/electricity/nem/retail_and_metering/metering-procedures/nmi-allocation-list.pdf).
+The applicable region is NSW1. QLD1 and NSW1 correlate only 0.73 over the window tested,
+which is more than enough to make a correct field look broken.
+
+The lesson generalises: derive the region from the connection point, and if a field looks
+broken, check the reference before blaming the field.
 
 The second error was the denominator, and it is the subtler one. See below.
 
