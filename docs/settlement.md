@@ -93,28 +93,82 @@ stamped `intervalEnd` midnight measures the last five minutes of the previous da
 the date from the end stamp would move it forward, leaving every day one interval short
 and permanently `partial`.
 
-## spotCost does not track AEMO spot
+## spotCost is exactly derivable, and an earlier claim here was wrong
 
-`spotCost` is the one field that updates on promotion, so it is the only part of an `Exp`
-row that reflects anything measured. It still should not be read as a spot cost.
+An earlier version of this document stated that `spotCost` does not track AEMO spot,
+citing 574 intervals of which none landed within 0.1 c/kWh. **That was wrong, and it was
+wrong twice over.** It is recorded here rather than quietly deleted, because both errors
+are easy to repeat.
 
-574 elapsed intervals compared against AEMO QLD1 dispatch RRP for the same interval
-ending stamps:
+The first error was the reference region. The comparison used QLD1. The premises sits in
+the NMI block `4001`, which the
+[AEMO NMI allocation list](https://www.aemo.com.au/-/media/files/electricity/nem/retail_and_metering/metering-procedures/nmi-allocation-list.pdf)
+assigns to Essential Energy, a New South Wales network, so the applicable region is NSW1.
+QLD1 and NSW1 correlate only 0.73 over the window tested, which is more than enough to
+make a correct field look broken.
 
-| Direction | Intervals | Median implied c/kWh | Median AEMO c/kWh | Median difference | Within 0.1 c/kWh |
-|---|---|---|---|---|---|
-| Buy | 287 | 9.794 | 6.532 | +2.614 | 0 of 287 |
-| Sell | 287 | 8.401 | 6.532 | +1.475 | 0 of 287 |
+The second error was the denominator, and it is the subtler one. See below.
 
-Implied rate is `spotCost / volume * 100`. Not one interval of 574 landed within
-0.1 c/kWh of AEMO. The gap is not a constant ratio and differs by direction, so it is not
-a simple loss factor being applied.
+### The actual relationship
 
-This is independent corroboration of a report from another household, using a different
-method, that cost tracking built on `spotCost` came in around 5 percent off a real
-statement. Do not build billing figures on this field. `amountAll` satisfies
-`rateAllVar = amountVar / volume * 100` on every row checked and is the sound choice.
+Against NSW1, `spotCost` is not approximately right, it is exact:
+
+```
+spotCost = RRP * lossFactor * gst * (1 - proportionP2P) * volume
+```
+
+| Term | Value |
+|---|---|
+| `RRP` | Regional reference price for the interval, converted from $/MWh to $/kWh |
+| `lossFactor` | 1.0500680, constant across every interval observed |
+| `gst` | 1.10 on `Buy`, 1.00 on `Sell` |
+| `proportionP2P` | The share of the interval settled peer to peer, which spot does not cover |
+
+Reproducing every elapsed interval from that formula:
+
+| Direction | Intervals | Reproduced within 0.01% | Median absolute error |
+|---|---|---|---|
+| Buy | 567 | 564 (99.5%) | $6.2e-08 |
+| Sell | 567 | 561 (98.9%) | $7.0e-09 |
+
+Errors of \$1e-08 on values of a few cents are floating point noise. A plain linear fit of
+the implied Buy rate against NSW1 RRP returns slope 1.15508, intercept 0.00002, and
+**R squared of 1.000000** with a maximum residual of 0.0006 c/kWh across 567 intervals.
+That slope factors cleanly as 1.0500680 loss factor times 1.10 GST. On the `Sell` side the
+ratio is 1.0501 with no GST, which is what you would expect, since AEMO spot is GST
+exclusive and an export is not a taxable supply for a residential customer.
+
+### The denominator trap
+
+`spotCost` is the cost of the part of the interval that settled at spot. `volume` is the
+whole interval. When some of the interval was matched peer to peer, dividing one by the
+other understates the spot rate, because the numerator excludes the matched share and the
+denominator does not.
+
+That single mistake accounts for the residual error:
+
+| Direction | Total `spotCost` | Naive total ignoring `proportionP2P` | Error |
+|---|---|---|---|
+| Buy | $3.80940 | $3.80937 | 0.00% |
+| Sell | $0.41440 | $0.49472 | **+19.38%** |
+
+Buy is unaffected here only because this premises almost never matched on import. Export
+matched often, and the export error is large.
+
+This is very likely the mechanism behind a report from another household that spot export
+tracking came in around 5 percent off a real statement. The size of the discrepancy
+depends entirely on how much of the period was peer matched, so 5 percent and 19 percent
+are the same error at different match rates.
+
+### What to use
+
+`spotCost` is sound and can be trusted. Read it as a dollar amount for the unmatched share
+of the interval, not as a rate. To recover a spot rate, divide by
+`volume * (1 - proportionP2P)`, not by `volume`.
+
+`amountAll` remains the right field for total cost, and satisfies
+`rateAllVar = amountVar / volume * 100` on every row checked.
 
 AEMO dispatch data from the
-[AEMO market data visualisation API](https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN).
-Spot is GST exclusive at AEMO.
+[AEMO market data visualisation API](https://visualisations.aemo.com.au/aemo/apps/api/report/5MIN)
+at 5 minute resolution, `PERIODTYPE` `ACTUAL`. Spot is GST exclusive at AEMO.
