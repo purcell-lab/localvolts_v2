@@ -548,3 +548,17 @@ def test_both_directions_publish_a_spot_rate():
     """The spot leg is half the blend, so neither direction may omit it."""
     keys = {d.key for d in HAEO_FEEDS}
     assert {"buy_spot_rate", "sell_spot_rate"} <= keys
+
+
+def test_the_spot_rate_says_where_it_can_be_trusted():
+    """The spot leg is only sound on forecast rows.
+
+    On 2026-08-10 the blend reproduced rateAllVar on 204 of 206 forecast rows
+    per direction and on none of the 83 settled rows. The current interval is
+    usually settled, so the state of these entities is the weaker number while
+    the forecast attribute is the sound one. Anyone reading the state needs to
+    know that, so the description has to say it.
+    """
+    for key in ("buy_spot_rate", "sell_spot_rate"):
+        definition = next(d for d in HAEO_FEEDS if d.key == key)
+        assert "forecast rows" in definition.description, key

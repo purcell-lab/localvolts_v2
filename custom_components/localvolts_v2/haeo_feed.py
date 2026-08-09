@@ -326,13 +326,26 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
     ),
     # The spot leg. rateAllVar already blends this with the matched leg, so
     # these are published to make the blend visible, not to be summed with it.
+    #
+    # Trust these on forecast rows and treat them as indicative once settled.
+    # On the 206 Fcst rows of 2026-08-10 the blend reproduced rateAllVar on 204
+    # per direction. On the 83 settled Exp rows of the same day it reproduced
+    # none of them, scattering 12.68 to 21.66 c/kWh on import and negative on
+    # export. The supplied specification also warns that spotCost is unreliable
+    # once settled, though the 1050 times inflation it describes did not appear
+    # in this sample. Since the current interval is usually settled, the state
+    # of these two entities is the weaker number and the forecast attribute is
+    # the sound one.
     HaeoFeedDefinition(
         key="buy_spot_rate",
         name="Buy Spot Rate",
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_BUY,
         source="spotCost",
-        description="Spot settled import rate on the unmatched share, None when fully matched",
+        description=(
+            "Spot settled import rate on the unmatched share, None when fully matched. "
+            "Reliable on forecast rows, indicative once the interval settles"
+        ),
         value=spot_price,
     ),
     HaeoFeedDefinition(
@@ -341,7 +354,10 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         unit=UNIT_DOLLAR_PER_KWH,
         direction=DIRECTION_SELL,
         source="spotCost",
-        description="Spot settled export rate on the unmatched share, None when fully matched",
+        description=(
+            "Spot settled export rate on the unmatched share, None when fully matched. "
+            "Reliable on forecast rows, indicative once the interval settles"
+        ),
         value=spot_price,
     ),
     # flexDown was byte for byte the exact negation of flexUp across all 1730

@@ -240,9 +240,30 @@ pay. It also held on unmatched intervals, within the bound set by `spotCost` bei
 published to six decimal places, on 177 of 179 import and 124 of 126 export intervals.
 Two per direction fell outside that bound on ordinary volumes and are unexplained.
 
+**The identity holds on forecast rows only.** Same day, same arithmetic, split by
+quality:
+
+| Direction | Quality | Rows | Median gap | Rows within 0.01 of it |
+|---|---|---|---|---|
+| Buy | `Fcst` | 206 | 17.5313 | 204 |
+| Buy | `Exp` | 83 | 14.9111 | 1 |
+| Sell | `Fcst` | 206 | 0.0000 | 204 |
+| Sell | `Exp` | 83 | -2.3820 | 1 |
+
+Settled rows scatter, from 12.68 to 21.66 c/kWh on import and negative on export. The
+cost identity `rateAllVar = amountVar / volume * 100` held on all 289 rows of both
+qualities, so `rateAllVar` is not the problem. `spotCost` is. That is consistent with the
+supplied specification's warning that `spotCost` is unreliable once settled, although the
+1050 times inflation it describes did not appear here; these values look plausible and
+are simply wrong.
+
+The practical consequence is that `buy_spot_rate` and `sell_spot_rate` should be trusted
+in their `forecast` attribute and treated as indicative in their state, because the
+current interval is usually already settled.
+
 This is a fitted identity, not vendor documented behaviour. It is asserted in
-`tests/test_haeo_feed.py` against two real intervals so an API change that folds the
-layer in shows up as a test failure.
+`tests/test_haeo_feed.py` against two real forecast intervals so an API change that folds
+the layer in shows up as a test failure.
 
 Note `rateAllVar` is variable only. `amountFixed`, the daily supply charge share, sits
 outside it.
