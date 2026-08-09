@@ -1,4 +1,4 @@
-"""Config-flow tests for required v2 and optional v1 credentials."""
+"""Config flow tests for the single credential pair and its migration."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, patch
 import aiohttp
 import pytest
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.localvolts_v2 import async_migrate_entry
 from custom_components.localvolts_v2.api import LocalVoltsAuthError
 from custom_components.localvolts_v2.const import (
     CONF_API_KEY,
@@ -19,8 +21,8 @@ from custom_components.localvolts_v2.const import (
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_user_flow_creates_v2_only_entry(hass):
-    """v2 credentials are sufficient and optional v1 fields are not persisted blank."""
+async def test_user_flow_takes_one_credential_pair(hass):
+    """One key and one partner id are the whole form."""
     client = AsyncMock()
     client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
     client.fetch_interval.return_value = []
@@ -33,45 +35,31 @@ async def test_user_flow_creates_v2_only_entry(hass):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_API_KEY: "raw-v2-key",
-                CONF_PARTNER_ID: "v2-partner",
+                CONF_API_KEY: "raw-key",
+                CONF_PARTNER_ID: "partner",
                 CONF_NMI: "4001247247",
-                CONF_V1_API_KEY: "",
-                CONF_V1_PARTNER_ID: "",
             },
         )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_API_KEY] == "apikey raw-v2-key"
-    assert CONF_V1_API_KEY not in result["data"]
-    assert CONF_V1_PARTNER_ID not in result["data"]
+    assert result["data"][CONF_API_KEY] == "apikey raw-key"
+    assert set(result["data"]) == {CONF_API_KEY, CONF_PARTNER_ID, CONF_NMI}
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_user_flow_stores_optional_v1_credential_pair(hass):
-    """A complete optional v1 pair is normalized and stored separately."""
-    client = AsyncMock()
-    client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
-    client.fetch_interval.return_value = []
+async def test_the_form_no_longer_offers_v1_fields(hass):
+    """The second pair is gone from the form, not merely ignored.
 
-    with patch("custom_components.localvolts_v2.config_flow.LocalVoltsClient", return_value=client):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            {
-                CONF_API_KEY: "apikey v2-key",
-                CONF_PARTNER_ID: "v2-partner",
-                CONF_NMI: "4001247247",
-                CONF_V1_API_KEY: "v1-key",
-                CONF_V1_PARTNER_ID: "v1-partner",
-            },
-        )
+    Leaving the fields on screen would keep implying they unlock something. The
+    v1 payload is reachable on the v2 host with the v2 credential, so they do
+    not.
+    """
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
 
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_V1_API_KEY] == "apikey v1-key"
-    assert result["data"][CONF_V1_PARTNER_ID] == "v1-partner"
+    keys = {str(marker) for marker in result["data_schema"].schema}
+    assert keys == {CONF_API_KEY, CONF_PARTNER_ID, CONF_NMI}
+    assert CONF_V1_API_KEY not in keys
+    assert CONF_V1_PARTNER_ID not in keys
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -137,3 +125,42 @@ async def test_user_flow_normalizes_a_separated_nmi_checksum(hass):
     assert result["title"] == "LocalVolts v2 40012345678"
     # The cleaned NMI must also be what is sent to the API.
     client.fetch_interval.assert_awaited_once_with("40012345678")
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_a_version_one_entry_loses_its_second_credential_pair(hass):
+    """Migration strips the stale pair instead of leaving it in storage."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        unique_id=f"{DOMAIN}_4001247247",
+        data={
+            CONF_API_KEY: "apikey key",
+            CONF_PARTNER_ID: "partner",
+            CONF_NMI: "4001247247",
+            CONF_V1_API_KEY: "apikey old-v1-key",
+            CONF_V1_PARTNER_ID: "old-v1-partner",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry) is True
+    await hass.async_block_till_done()
+
+    assert entry.version == 2
+    assert set(entry.data) == {CONF_API_KEY, CONF_PARTNER_ID, CONF_NMI}
+    assert entry.data[CONF_API_KEY] == "apikey key"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_migration_refuses_a_future_entry_rather_than_guessing(hass):
+    """A downgrade is a failure, not something to silently attempt."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id=f"{DOMAIN}_4001247247",
+        data={CONF_API_KEY: "apikey key", CONF_PARTNER_ID: "partner", CONF_NMI: "4001247247"},
+    )
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry) is False

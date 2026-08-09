@@ -1,4 +1,4 @@
-"""LocalVolts v2 Home Assistant integration with optional v1 comparison data."""
+"""LocalVolts v2 Home Assistant integration with v1 comparison data."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -187,6 +187,30 @@ def _async_normalize_nmi_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry
     )
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
+    """Drop the second credential pair, which was never needed.
+
+    Version 1 entries could carry a separate v1 key and partner id. The v1
+    payload turned out to be reachable on the v2 host with the v2 credential,
+    so the extra pair is dead weight and is removed rather than left sitting in
+    storage. Nothing else in the entry changes and no entity is affected.
+    """
+    if entry.version > 2:
+        # Downgrades are not supported. Fail rather than guess.
+        return False
+
+    if entry.version == 1:
+        data = {
+            key: value
+            for key, value in entry.data.items()
+            if key not in (CONF_V1_API_KEY, CONF_V1_PARTNER_ID)
+        }
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+        _LOGGER.debug("Migrated LocalVolts entry to version 2, single credential pair")
+
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
     """Set up LocalVolts v2 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -198,13 +222,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -
         entry.data[CONF_API_KEY],
         entry.data[CONF_PARTNER_ID],
     )
-    v1_client = None
-    if entry.data.get(CONF_V1_API_KEY) and entry.data.get(CONF_V1_PARTNER_ID):
-        v1_client = LocalVoltsV1Client(
-            session,
-            entry.data[CONF_V1_API_KEY],
-            entry.data[CONF_V1_PARTNER_ID],
-        )
+    # One credential pair reaches both payloads. The v1 path on the v2 host
+    # authenticates with the v2 credential and returns identical data to the
+    # legacy host, so there is nothing left for a second pair to unlock.
+    v1_client = LocalVoltsV1Client(
+        session,
+        entry.data[CONF_API_KEY],
+        entry.data[CONF_PARTNER_ID],
+    )
     coordinator = LocalVoltsCoordinator(
         hass,
         client,

@@ -24,12 +24,17 @@ Selecting the badge above opens this repository directly in HACS on your own Hom
 
 The UI config flow asks for the following values:
 
-- **v2 API Key**. Enter either the raw key or `apikey <key>`. The integration normalizes the value before sending the required `Authorization` header.
-- **v2 Partner ID**. This must be paired with the v2 API key.
-- **NMI**. The NMI that the v2 key and partner ID are authorized to access.
-- **Optional v1 API Key and v1 Partner ID**. These must be a separate v1 credential pair. A v1 key is not valid for v2 and a v2 key is not valid for v1.
+- **API Key**. Enter either the raw key or `apikey <key>`. The integration normalizes the value before sending the required `Authorization` header.
+- **Partner ID**. The partner ID paired with that key.
+- **NMI**. The NMI that the key and partner ID are authorized to access.
 
-The integration verifies v2 connectivity by calling `/version`, then checks the supplied NMI through the v2 interval endpoint. It continues to work when v1 credentials are omitted. If v1 is configured but later unavailable, the v2 entities continue to update and the comparison sensor remains unavailable until v1 data returns.
+That is the whole form. One credential pair reaches both payloads.
+
+Earlier versions asked for a second, separate v1 pair, on the understanding that a v1 key was not valid for v2 and a v2 key was not valid for v1. The v1 payload is served by the v2 host under the v1 path, and the v2 credential authenticates it. Checked on 2026-08-09 over a 23 hour window, `api2.localvolts.com/v1` with the v2 credential and `api.localvolts.com/v1` with a separate v1 credential both returned 277 records carrying the same 49 fields, and every field of every record matched except `lastUpdate`, a response stamp that differed by seven seconds because the two calls were not simultaneous.
+
+Existing installations are migrated automatically. The stale second pair is removed from storage on upgrade, no entity is affected, and nothing needs to be reconfigured.
+
+The integration verifies connectivity by calling `/version`, then checks the supplied NMI through the v2 interval endpoint. If the v1 comparison fetch fails, the other entities continue to update and the comparison sensor stays unavailable until it returns.
 
 Use the integration's **Configure** action after setup to change the polling interval. The default is 300 seconds, matching the documented five-minute interval granularity. The minimum is 60 seconds.
 
@@ -45,7 +50,7 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Daily Earnings | Sum of today's settled Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
-| V1-V2 Daily Cost Delta | Created only when both optional v1 credentials are supplied. State is today's v1 `costsAll` minus v2 settled Buy `amountAll`, with both totals in attributes. |
+| V1-V2 Daily Cost Delta | Today's v1 `costsAll` minus v2 settled Buy `amountAll`, with both totals in attributes. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
@@ -145,7 +150,8 @@ Known v1 caveats from the supplied reverse-engineered comparison notes:
 
 - `costsAll` undercounts total cost. It misses the P2P premium entirely and approximately 24.7 cents per day of the LocalVolts daily fee in the observed data.
 - v1 uses a percent string for `importsAllZeroEE`; v2 uses a zero-to-one fraction for the comparable `zeroEE` field. Do not mix these units in templates.
-- v1 credentials are separate from v2 credentials.
+- v1 and v2 are two views of the same account, not two accounts. One credential pair reaches both.
+- v1 refuses any window of 24 hours or wider, including a bare pair of dates one day apart, and answers `'to' date cannot be more than 24 hours after 'from' date or current time`. v2 accepts the multi day window the coordinator uses, so the two clients are given different windows. v1 is asked for the local day only, which is all the comparison sensor needs.
 
 ## API behavior and limitations
 

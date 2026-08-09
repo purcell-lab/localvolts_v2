@@ -7,16 +7,12 @@
         "data": {
           "api_key": "v2 API Key",
           "partner_id": "v2 Partner ID",
-          "nmi": "NMI",
-          "v1_api_key": "Optional v1 API Key",
-          "v1_partner_id": "Optional v1 Partner ID"
+          "nmi": "NMI"
         },
         "data_description": {
-          "api_key": "Enter the API key. The required apikey prefix is added automatically if omitted.",
-          "partner_id": "The LocalVolts partner ID paired with this API key.",
-          "nmi": "The NMI authorized for this API key and partner ID.",
-          "v1_api_key": "Optional and separate from v2. Used only for v1 comparison data.",
-          "v1_partner_id": "Optional v1 partner ID paired with the v1 API key."
+          "api_key": "The one API key for this NMI. Enter the raw key or \"apikey <key>\".",
+          "partner_id": "The partner ID paired with that key.",
+          "nmi": "The NMI authorized for this API key and partner ID."
         }
       }
     },

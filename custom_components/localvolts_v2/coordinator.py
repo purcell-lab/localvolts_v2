@@ -147,9 +147,15 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
 
         v1_history: list[dict[str, Any]] | None = None
         if self.v1_client is not None:
+            # v1 needs its own narrower window. It rejects anything 24 hours or
+            # wider, so the multi day v2 window fails outright there. The only
+            # consumer is the daily cost comparison, so ask for the local day
+            # and stop one second short of the boundary.
+            day_start = dt_util.start_of_local_day()
+            day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
             try:
                 v1_history = await self.v1_client.fetch_interval(
-                    self.nmi, from_date, to_date
+                    self.nmi, day_start, day_end
                 )
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.warning(

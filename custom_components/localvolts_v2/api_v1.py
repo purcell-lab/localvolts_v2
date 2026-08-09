@@ -1,19 +1,36 @@
 """Async client for the supplementary LocalVolts v1 interval API."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
 
 from .api import LocalVoltsApiError, LocalVoltsAuthError, normalize_api_key
+from .const import API_BASE_URL
 
+# The v1 payload is served by the v2 host under the v1 path, and the v2
+# credential authenticates it. Checked on 2026-08-09 over a 23 hour window:
+# api2.localvolts.com/v1 with the v2 credential and api.localvolts.com/v1 with a
+# separate v1 credential both returned 277 records carrying the same 49 fields,
+# and every field of every record matched except lastUpdate, a response stamp
+# that differed by 7 seconds because the two calls were not simultaneous.
+#
+# So a second credential pair buys nothing, and the legacy host is kept only as
+# an override for anyone who needs to point at it.
 V1_API_BASE_URL = "https://api.localvolts.com"
 V1_API_INTERVAL_PATH = "/v1/customer/interval"
 
 
+def _as_utc_stamp(moment: datetime) -> str:
+    """Render an instant the way v1 accepts it, as a UTC Z timestamp."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class LocalVoltsV1Client:
-    """Read LocalVolts v1 settled interval data using separate v1 credentials.
+    """Read LocalVolts v1 settled interval data using the primary credentials.
 
     v1 is supplementary only. The supplied reverse-engineered comparison notes
     identify v2 as the invoice-total source, while selected v1 fields remain
@@ -25,7 +42,7 @@ class LocalVoltsV1Client:
         session: aiohttp.ClientSession,
         api_key: str,
         partner_id: str,
-        base_url: str = V1_API_BASE_URL,
+        base_url: str = API_BASE_URL,
     ) -> None:
         self._session = session
         self._authorization = normalize_api_key(api_key)
@@ -43,15 +60,20 @@ class LocalVoltsV1Client:
     async def fetch_interval(
         self,
         nmi: str,
-        from_date: date | None = None,
-        to_date: date | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch v1 interval data without affecting v2 operation on errors."""
+        """Fetch v1 interval data without affecting v2 operation on errors.
+
+        Takes instants, not dates. v1 refuses any window of 24 hours or wider,
+        including a bare pair of dates one day apart, so the caller has to name
+        the exact endpoints of the window it wants. Instants are sent as UTC.
+        """
         params = {"NMI": nmi}
-        if from_date is not None:
-            params["from"] = from_date.isoformat()
-        if to_date is not None:
-            params["to"] = to_date.isoformat()
+        if start is not None:
+            params["from"] = _as_utc_stamp(start)
+        if end is not None:
+            params["to"] = _as_utc_stamp(end)
 
         async with self._session.get(
             f"{self._base_url}{V1_API_INTERVAL_PATH}",
