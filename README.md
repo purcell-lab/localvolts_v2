@@ -137,6 +137,8 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - `spotCost` is unreliable on settled `Exp` and `Act` intervals. The supplied specification observed it inflated by about 1050 times. Treat it as forecast-only unless independently reconciled.
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
 
+For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
+
 ## Development
 
 Run the test suite from the repository root:
