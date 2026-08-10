@@ -77,15 +77,28 @@ Before concluding anything about a percentage gap, confirm you are comparing the
 
 ## A note on calibration factors
 
-One report of a roughly 1.5 percent billing gap traced back to a stale calibration factor. Worth knowing that a fixed multiplier of `1.0500680` appears in the relationship between the market spot price and the `spotCost` field, which is the shape a loss factor takes.
+A fixed multiplier of `1.0500680` appears in the relationship between the market spot price and the `spotCost` field, which is the shape a loss factor takes. Loss factors are reset annually, so a multiplier that was correct last year is a plausible source of a persistent bias this year.
 
-That is an observation, not a diagnosis. Loss factors are reset annually, so a factor that was correct last year is a plausible source of a small persistent bias this year. If your gap is small, stable, and proportional to volume rather than to time, a stale multiplier somewhere is worth ruling out before anything more exotic.
+That is an observation about this feed, not a diagnosis of anyone's bill.
+
+Worth correcting a natural assumption here, because it changes what you look for. Calibration errors do not necessarily present as small discrepancies. The two such incidents on record from another household running their own integration were an import cost calibration factor that had drifted far enough to overstate cost by around 80 percent, and a network time of use rate that was around 11 percent off against their real bill. Neither was subtle.
+
+So do not restrict this suspicion to a small gap. A wrong multiplier can be any size, and a large unexplained discrepancy is more likely to be one bad constant than several compounding subtleties. The useful signature is not the magnitude, it is whether the gap scales with volume rather than with elapsed time.
+
+## Check the figure you are comparing against
+
+The caveats above apply to your own totals. They may also apply to the number you are checking them against.
+
+The retailer's portal has been reported to show a running total for a period that is not fully settled yet, booked forward on the same forecast amounts described above. A figure read from a portal part way through a day, or shortly after one ends, may therefore be a projection rather than a result.
+
+If that is what happened, the two sides of your comparison are not the same kind of number, and no amount of work on your own data will close the gap. Confirm the reference figure covers a period that has fully settled before treating a discrepancy as real. An invoice is safe. A portal total for a recent period may not be.
 
 ## A reasonable order to work through a gap
 
-1. Confirm the interval counts match. Missing intervals and period misalignment are the most common cause and the least interesting.
-2. Check whether the gap is proportional to volume or proportional to elapsed time. Volume points at the energy charge or a multiplier, time points at the supply charge.
-3. Check GST on the fixed component.
-4. Only then treat the residual as the forecast versus settled difference described above.
+1. Confirm the reference figure covers a fully settled period, for the reason above. A projection compared against a total is not a discrepancy.
+2. Confirm the interval counts match. Missing intervals and period misalignment are the most common cause and the least interesting.
+3. Check whether the gap is proportional to volume or proportional to elapsed time. Volume points at the energy charge or a multiplier, time points at the supply charge.
+4. Check GST on the fixed component.
+5. Only then treat the residual as the forecast versus settled difference described above.
 
-A residual that survives all four is worth reporting upstream. A gap that disappears at step one was never real.
+A residual that survives all five is worth reporting upstream. A gap that disappears at step one or two was never real.
