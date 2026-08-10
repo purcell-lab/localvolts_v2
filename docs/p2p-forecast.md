@@ -86,6 +86,59 @@ explains every observation to date, but the decisive test has not been run: whet
 today's 31 forecast matched `Buy` intervals survive settlement unchanged. If they do, the
 freeze is confirmed. If they vanish, the mechanism is something else.
 
+#### Partial result, 2026-08-10
+
+The same day was pulled twice, at 09:22 and 11:20 local, and the two responses compared
+field by field across all 578 intervals.
+
+All 31 matched `Buy` intervals were byte identical between the two pulls, including
+`proportionP2P` and `matchedCost`, totalling 0.3343 kWh. That is consistent with the
+freeze, but it is not yet the decisive test, because all 31 were still `Fcst` at the
+second pull. None had settled, so none had the opportunity to change.
+
+The comparison did settle a different question. Of the 578 intervals, 48 advanced from
+`Fcst` to `Exp` between the two pulls. On every one of those 48, exactly these fields
+changed and no others:
+
+| Field | Changed | Note |
+|---|---|---|
+| `spotCost` | 48 of 48 | mean absolute change $0.000833, max $0.003533 |
+| `flexUp`, `flexDown` | 48 of 48 | |
+| `quality` | 48 of 48 | the transition itself |
+| `lastUpdate` | 48 of 48 | |
+| `zeroEE` | 24 of 48 | |
+
+And these were unchanged on all 48: `amountAll`, `amountVar`, `amountFixed`,
+`amountDemand`, `volume`, `proportionP2P`, `matchedCost`, `rateAllVar`.
+
+So settlement rewrites the spot component and nothing else. **The dollar fields and the
+volume are written once at forecast build and are never revised.** Any cost total built
+from `amountAll` is therefore forecast grade even after the interval has elapsed.
+
+### The gap moves, it is not confined to the buy side
+
+An earlier reading of this document could suggest the only failure is `Buy` matching
+being absent for a whole day. A second household running their own LocalVolts integration
+reports the gap is not fixed in one direction or one part of the window.
+
+Their observation, reported to us rather than reproduced here: on one evening
+`proportionP2P` sat flat at zero for the first 2 hours 15 minutes of the window while the
+LocalVolts portal chart showed real matching from the first minute. Two nights earlier
+the shape was the opposite, matched early and decaying to nothing late.
+
+Our own three days are consistent with something that moves, though without portal
+comparison they cannot separate an unreported match from an absence of trades:
+
+| Local day | `Sell` matched intervals | Hours matched | `Buy` matched intervals |
+|---|---|---|---|
+| 2026-08-08 | 72 of 288 | 18 to 24 | none |
+| 2026-08-09 | 55 of 288 | 18 to 24 | none |
+| 2026-08-10 | 84 of 288 | 17 to 24 | 31, scattered 11 to 21 |
+
+The practical guidance is the same either way. Do not treat a zero `proportionP2P` as
+proof that an interval settled entirely at spot, and do not assume the unreliable region
+sits at a predictable place in the day.
+
 ### Consequence for optimisation
 
 Matched energy can be permanently absent for a delivery day, so `buy_rate_all_var` and
@@ -304,6 +357,34 @@ site capability. Forward `volume` is a carry forward of recent metering, so usin
 whole of grid export limit would cap the site at whatever it happened to be exporting
 earlier. It belongs on a dashboard, or on a premium offer tier that genuinely pays only
 for matched energy, not on a power limit.
+
+## Confidence and provenance
+
+This document deliberately separates what was measured here from what was reported to us.
+
+| Claim | Status |
+|---|---|
+| Both directions carry `proportionP2P` and `matchedCost` | Measured on this account |
+| Settlement rewrites `spotCost` and leaves the dollar fields untouched | Measured, 48 of 48 transitions on 2026-08-10 |
+| Peer matching is frozen at forecast build and never recomputed | Hypothesis fitted to observations, decisive test still outstanding |
+| The unreported region moves within the window and across directions | Reported by a second household with portal comparison, consistent with but not proven by our three days |
+| The `Fcst` to `Exp` to `Act` mechanism, and an unpredictable nightly batch | Reported second hand, see below |
+
+### The vendor statements we do not yet hold directly
+
+A second household running their own LocalVolts integration says they have direct
+statements from Joe Maisano at LocalVolts covering the `Fcst` to `Exp` to `Act`
+mechanism, and that the nightly settlement batch has no fixed time and can rarely be
+delayed.
+
+If accurate, that is primary vendor evidence and it would let this document raise its
+confidence on the settlement mechanism from inference to documented behaviour. It would
+also justify the completeness reporting in the reconciliation sensors, which currently
+rests on our own observation that `Act` never appears within the endpoint's reach.
+
+It is recorded here as reported rather than cited, because we have the substance second
+hand and not the wording. Until the wording is in hand, this repository continues to
+treat the mechanism as inference. Anyone relying on this document should do the same.
 
 ## Sources
 
