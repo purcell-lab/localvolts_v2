@@ -52,11 +52,25 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 |---|---|
 | Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Buy forecast. |
 | Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Sell forecast. |
-| Daily Cost | Sum of today's settled Buy `amountAll` records. |
-| Daily Earnings | Sum of today's settled Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
+| Daily Cost | Sum of today's settled Buy `amountAll` records, in AUD. |
+| Daily Earnings | Sum of today's settled Sell `amountAll` records, in AUD. This represents total export interval earnings, not only P2P-matched value. |
+| Daily Net Cost | Daily Cost less Daily Earnings, in AUD. Goes negative on a day that exports more value than it imports. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
+
+### Cost accounting
+
+The three money entities carry the monetary device class, an ISO 4217 unit of `AUD`, and the `total` state class with `last_reset` at local midnight. That combination is deliberate:
+
+- Home Assistant excludes the monetary device class from `measurement` long term statistics, so a monetary `measurement` sensor records mean, min and max and never a sum. A month or a year of cost cannot be read back from it.
+- `total_increasing` is wrong here because negative prices can make a daily cost fall during the day, which would be read as a meter reset.
+- `last_reset` tells the recorder that the return to zero at midnight is a new counting period rather than a fall the size of a whole day.
+
+`amountAll` already includes network, supply and any demand charge. Each money entity exposes the split as `amount_var_today`, `amount_fixed_today` and `amount_demand_today`, and the three reconstruct the total. The fixed component accrues on every interval, so it accumulates on a day with no import at all. There is no separate certificate line in the API, so certificate costs cannot be broken out.
+
+These totals are forecast grade, and each one says so in its `caveat` attribute. See [the note on settlement and the dollar fields](docs/p2p-forecast.md) for the measurement behind that.
+
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
 

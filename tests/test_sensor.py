@@ -16,9 +16,13 @@ from custom_components.localvolts_v2.const import (
     DOMAIN,
 )
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+
 from custom_components.localvolts_v2.sensor import (
     LocalVoltsCurrentBuyRateSensor,
     LocalVoltsDailyCostSensor,
+    LocalVoltsDailyEarningsSensor,
+    LocalVoltsDailyNetCostSensor,
     async_setup_entry,
 )
 
@@ -120,3 +124,154 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
     assert sensor.extra_state_attributes["settled_interval_count"] == 3
 
 
+
+def _money_coordinator(hass, *, buy_amounts, sell_amounts):
+    """Build a coordinator whose histories sit safely inside today."""
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "1234567890")
+    midday = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
+
+    def leg(direction, amounts):
+        return [
+            _record(
+                direction,
+                "Exp",
+                intervalEnd=_utc_stamp(midday + timedelta(minutes=5 * index)),
+                amountAll=amount,
+                amountVar=round(amount * 0.75, 6),
+                amountFixed=round(amount * 0.25, 6),
+                amountDemand=0.0,
+            )
+            for index, amount in enumerate(amounts)
+        ]
+
+    coordinator.async_set_updated_data(
+        LocalVoltsData(
+            current_buy=None,
+            current_sell=None,
+            buy_forecast=[],
+            sell_forecast=[],
+            buy_history=leg("Buy", buy_amounts),
+            sell_history=leg("Sell", sell_amounts),
+            market_stats=None,
+            last_update=datetime.now(timezone.utc),
+        )
+    )
+    return coordinator
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_money_sensors_can_produce_a_statistics_sum(hass):
+    """Monetary sensors must be TOTAL, because MEASUREMENT records no sum.
+
+    Home Assistant excludes the monetary device class from MEASUREMENT long
+    term statistics. A monetary MEASUREMENT sensor therefore records mean, min
+    and max and never a sum, which is the one thing a cost total is for.
+    """
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10], sell_amounts=[0.04])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+
+    for factory in (
+        LocalVoltsDailyCostSensor,
+        LocalVoltsDailyEarningsSensor,
+        LocalVoltsDailyNetCostSensor,
+    ):
+        sensor = factory(coordinator, entry)
+        assert sensor.device_class == SensorDeviceClass.MONETARY
+        assert sensor.state_class == SensorStateClass.TOTAL
+        # ISO 4217 is required for the monetary device class. A bare "$" is not.
+        assert sensor.native_unit_of_measurement == "AUD"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_money_sensors_reset_at_local_midnight(hass):
+    """last_reset must be local midnight, or the daily reset eats the day.
+
+    The total only covers today, so it drops to zero at midnight. Without
+    last_reset that drop is recorded as a decline the size of a whole day and
+    cancels the day out of the running sum.
+    """
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10], sell_amounts=[])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    sensor = LocalVoltsDailyCostSensor(coordinator, entry)
+
+    expected = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    assert sensor.last_reset == expected
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_daily_cost_breaks_the_total_into_its_parts(hass):
+    """amountAll already carries network and fixed charges, so show the split."""
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10, 0.20], sell_amounts=[])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    sensor = LocalVoltsDailyCostSensor(coordinator, entry)
+    attributes = sensor.extra_state_attributes
+
+    assert sensor.native_value == pytest.approx(0.30)
+    assert attributes["amount_var_today"] == pytest.approx(0.225)
+    assert attributes["amount_fixed_today"] == pytest.approx(0.075)
+    assert attributes["amount_demand_today"] == pytest.approx(0.0)
+    # The parts must actually reconstruct the whole.
+    assert (
+        attributes["amount_var_today"]
+        + attributes["amount_fixed_today"]
+        + attributes["amount_demand_today"]
+    ) == pytest.approx(sensor.native_value)
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_net_cost_subtracts_export_from_import(hass):
+    """Net cost is the running bill, so the export leg must come off."""
+    coordinator = _money_coordinator(
+        hass, buy_amounts=[0.50, 0.25], sell_amounts=[0.10, 0.05]
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    net = LocalVoltsDailyNetCostSensor(coordinator, entry)
+
+    assert net.native_value == pytest.approx(0.60)
+    cost = LocalVoltsDailyCostSensor(coordinator, entry)
+    earnings = LocalVoltsDailyEarningsSensor(coordinator, entry)
+    assert net.native_value == pytest.approx(cost.native_value - earnings.native_value)
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_net_cost_can_go_negative_on_a_strong_export_day(hass):
+    """A credit must survive as a credit, which is why TOTAL_INCREASING is wrong."""
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10], sell_amounts=[0.90])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    net = LocalVoltsDailyNetCostSensor(coordinator, entry)
+
+    assert net.native_value == pytest.approx(-0.80)
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_money_sensors_disclose_that_they_are_forecast_grade(hass):
+    """The amount fields are never revised on settlement, so say so."""
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10], sell_amounts=[])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    sensor = LocalVoltsDailyCostSensor(coordinator, entry)
+
+    assert "not revised" in sensor.extra_state_attributes["caveat"]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_setup_registers_the_money_sensors(hass):
+    """A sensor that is never added to the platform does not exist.
+
+    The class level tests above construct sensors directly, so they stay green
+    even if a sensor is dropped from async_setup_entry. This names the money
+    sensors so that removing one is a failure rather than a silent loss.
+    """
+    coordinator = _money_coordinator(hass, buy_amounts=[0.10], sell_amounts=[0.04])
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    entry.add_to_hass(hass)
+    entry.runtime_data = SimpleNamespace(coordinator=coordinator)
+    collected: list = []
+    await async_setup_entry(hass, entry, lambda new, **_kwargs: collected.extend(new))
+
+    registered = {type(entity).__name__ for entity in collected}
+    for expected in (
+        "LocalVoltsDailyCostSensor",
+        "LocalVoltsDailyEarningsSensor",
+        "LocalVoltsDailyNetCostSensor",
+    ):
+        assert expected in registered
