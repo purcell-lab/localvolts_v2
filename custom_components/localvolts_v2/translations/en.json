@@ -18,7 +18,10 @@
     },
     "error": {
       "cannot_connect": "Could not connect to LocalVolts. Check network access and try again.",
+      "invalid_credentials": "LocalVolts v2 did not accept this API key and partner ID. v1 and v2 use separate credentials, so a key that works on the v1 API will fail here. Request v2 credentials from LocalVolts and enter those.",
+      "nmi_not_authorized": "The API key and partner ID are valid for v2, but this NMI is not authorized for them. Check the NMI, or ask LocalVolts to add it to this key.",
       "invalid_auth": "LocalVolts rejected the API key, partner ID, or NMI authorization.",
+      "no_data": "LocalVolts accepted the credentials but returned no interval data for this NMI. This can be a temporary gap, so try again. If it persists, check that the account has an active service at this NMI.",
       "unknown": "An unexpected error occurred. Check the Home Assistant log."
     },
     "abort": {

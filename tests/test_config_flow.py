@@ -10,7 +10,11 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.localvolts_v2 import async_migrate_entry
-from custom_components.localvolts_v2.api import LocalVoltsAuthError
+from custom_components.localvolts_v2.api import (
+    LocalVoltsAuthError,
+    LocalVoltsCredentialError,
+    LocalVoltsNmiScopeError,
+)
 from custom_components.localvolts_v2.const import (
     CONF_API_KEY,
     CONF_NMI,
@@ -24,7 +28,9 @@ async def test_user_flow_takes_one_credential_pair(hass):
     """One key and one partner id are the whole form."""
     client = AsyncMock()
     client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
-    client.fetch_interval.return_value = []
+    # One record is the minimum for a successful setup. An empty feed is now a
+    # failure, covered by test_user_flow_reports_no_data below.
+    client.fetch_interval.return_value = [{"intervalEnd": "2026-08-10T00:05:00Z"}]
 
     with patch("custom_components.localvolts_v2.config_flow.LocalVoltsClient", return_value=client):
         result = await hass.config_entries.flow.async_init(
@@ -60,22 +66,100 @@ async def test_the_form_no_longer_offers_a_second_credential_pair(hass):
     assert "v1_partner_id" not in keys
 
 
-@pytest.mark.usefixtures("enable_custom_integrations")
-async def test_user_flow_reports_invalid_auth(hass):
-    """HTTP-200 authentication bodies are reported as invalid credentials."""
-    client = AsyncMock()
-    client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
-    client.fetch_interval.side_effect = LocalVoltsAuthError("Not Authorised")
-
+async def _submit(hass, client):
+    """Run the user flow to completion against a mocked client."""
     with patch("custom_components.localvolts_v2.config_flow.LocalVoltsClient", return_value=client):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-        result = await hass.config_entries.flow.async_configure(
+        return await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {CONF_API_KEY: "key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
         )
 
+
+def _ok_client():
+    client = AsyncMock()
+    client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
+    return client
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_user_flow_reports_invalid_auth(hass):
+    """A bare auth error still falls back to the generic message."""
+    client = _ok_client()
+    client.fetch_interval.side_effect = LocalVoltsAuthError("something else")
+
+    result = await _submit(hass, client)
+
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "invalid_auth"}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_a_key_v2_does_not_accept_is_not_reported_as_an_nmi_problem(hass):
+    """A v1 key against v2 must point at the credentials, not the NMI.
+
+    v2 answers an unaccepted key with HTTP 200 and a body of
+    ``[{"error": "Not Authenticated"}]``, verified against the live API on
+    2026-08-10 with a deliberately invalid key and partner id. Reporting that as
+    a generic authorization failure is what sent a real user hunting through
+    their NMI when the actual problem was that v1 and v2 issue separate keys.
+    """
+    client = _ok_client()
+    client.fetch_interval.side_effect = LocalVoltsCredentialError("Not Authenticated")
+
+    result = await _submit(hass, client)
+
+    assert result["errors"] == {"base": "invalid_credentials"}
+    # The whole point is that it is distinguishable, so assert it did not
+    # collapse back into either neighbouring case.
+    assert result["errors"] != {"base": "invalid_auth"}
+    assert result["errors"] != {"base": "nmi_not_authorized"}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_an_unauthorized_nmi_is_not_reported_as_a_credential_problem(hass):
+    """The opposite case must point at the NMI, not the key.
+
+    v2 answers this with ``[{"error": "Not Authorised"}]``, also HTTP 200,
+    verified on 2026-08-10 by requesting an NMI the key does not cover. The two
+    bodies differ by one word and call for opposite remedies.
+    """
+    client = _ok_client()
+    client.fetch_interval.side_effect = LocalVoltsNmiScopeError("Not Authorised")
+
+    result = await _submit(hass, client)
+
+    assert result["errors"] == {"base": "nmi_not_authorized"}
+    assert result["errors"] != {"base": "invalid_credentials"}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_both_credential_errors_are_still_catchable_as_one(hass):
+    """Callers that only care that authorization failed keep working.
+
+    The two specific errors subclass LocalVoltsAuthError so existing handlers do
+    not have to enumerate them. If that inheritance were dropped, the config
+    flow would fall through to unknown.
+    """
+    assert issubclass(LocalVoltsCredentialError, LocalVoltsAuthError)
+    assert issubclass(LocalVoltsNmiScopeError, LocalVoltsAuthError)
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_user_flow_reports_no_data(hass):
+    """Accepting an empty feed would create an entry that never has a value.
+
+    Setup is refused instead. The coordinator stays tolerant of an empty poll,
+    because a transient gap should not tear down a working integration; this
+    check is setup only, and the message tells the user to retry.
+    """
+    client = _ok_client()
+    client.fetch_interval.return_value = []
+
+    result = await _submit(hass, client)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "no_data"}
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -105,7 +189,7 @@ async def test_user_flow_normalizes_a_separated_nmi_checksum(hass):
     """
     client = AsyncMock()
     client.fetch_version.return_value = {"name": "Localvolts API", "version": "v2.1.0"}
-    client.fetch_interval.return_value = []
+    client.fetch_interval.return_value = [{"intervalEnd": "2026-08-10T00:05:00Z"}]
 
     with patch("custom_components.localvolts_v2.config_flow.LocalVoltsClient", return_value=client):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
