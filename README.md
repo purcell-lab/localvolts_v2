@@ -190,6 +190,14 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.3.0
+
+The Daily Cost and Daily Earnings sensors changed unit from `$` to `AUD`, gained the monetary device class, and changed state class from measurement to total with a `last_reset` at local midnight. They were not eligible for long term statistics before this and they are now.
+
+Home Assistant tracks the unit of an existing entity, so it may surface the unit change for those two sensors after the upgrade. This was not tested against a live upgrade, only against the entity definitions.
+
+Three entities are new: Daily Net Cost, Yesterday Cost and Yesterday Earnings.
+
 ## Why v1 was dropped
 
 Upgrading to 2.2.0 removes the V1-V2 Daily Cost Delta entity. If a dashboard or automation references it, update that reference. It never held a state, so most installations will not notice.
