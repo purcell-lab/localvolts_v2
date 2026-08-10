@@ -1,7 +1,7 @@
 """DataUpdateCoordinator for LocalVolts v2."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 import logging
 from typing import Any
@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import LocalVoltsClient, parse_interval_end
+from .reconciliation import DayReconciliation, reconcile_day
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DIRECTION_BUY,
@@ -35,6 +36,10 @@ class LocalVoltsData:
     sell_history: list[dict[str, Any]]
     market_stats: dict[str, Any] | None
     last_update: datetime
+    # Keyed "cost" and "earnings" to match the daily sensors they pair with.
+    # Defaulted so a caller building a snapshot for one narrow purpose does not
+    # have to fabricate a reconciliation it will never read.
+    yesterday: dict[str, DayReconciliation] = field(default_factory=dict)
 
 
 def _interval_duration(record: dict[str, Any]) -> timedelta:
@@ -142,6 +147,21 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         )
 
         now = datetime.now(timezone.utc)
+
+        # Yesterday is already inside the polling window, so reconciling it costs
+        # no extra request. There is nothing to gain from a separate next morning
+        # fetch when every poll of the day already carries the whole of it.
+        local_now = dt_util.now()
+        yesterday_day = local_now.date() - timedelta(days=1)
+        yesterday = {
+            "cost": reconcile_day(
+                buy_records, yesterday_day, "amountAll", local_now.tzinfo
+            ),
+            "earnings": reconcile_day(
+                sell_records, yesterday_day, "amountAll", local_now.tzinfo
+            ),
+        }
+
         market_stats: dict[str, Any] | None
         try:
             market_stats = await self.client.fetch_market_stats()
@@ -162,4 +182,5 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             ],
             market_stats=market_stats,
             last_update=now,
+            yesterday=yesterday,
         )

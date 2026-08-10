@@ -268,10 +268,20 @@ async def test_setup_registers_the_money_sensors(hass):
     collected: list = []
     await async_setup_entry(hass, entry, lambda new, **_kwargs: collected.extend(new))
 
-    registered = {type(entity).__name__ for entity in collected}
+    registered = [type(entity).__name__ for entity in collected]
     for expected in (
         "LocalVoltsDailyCostSensor",
         "LocalVoltsDailyEarningsSensor",
         "LocalVoltsDailyNetCostSensor",
     ):
         assert expected in registered
+
+    # Both reconciliation sensors come from the same class, so count them.
+    assert registered.count("LocalVoltsYesterdayReconciliationSensor") == 2
+
+    labels = {
+        entity.name
+        for entity in collected
+        if type(entity).__name__ == "LocalVoltsYesterdayReconciliationSensor"
+    }
+    assert labels == {"Yesterday Cost", "Yesterday Earnings"}

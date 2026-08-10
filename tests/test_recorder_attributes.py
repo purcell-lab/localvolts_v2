@@ -10,7 +10,10 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from homeassistant.util import dt as dt_util
+
 from custom_components.localvolts_v2.api import normalize_nmi
+from custom_components.localvolts_v2.reconciliation import reconcile_day
 from custom_components.localvolts_v2.const import (
     CONF_API_KEY,
     CONF_NMI,
@@ -255,6 +258,19 @@ async def _all_entities(hass):
                 "updated": "08/08/2026 09:55:51 AM GMT+10",
             },
             last_update=datetime.now(timezone.utc),
+            # Populated so the audit actually inspects the reconciliation
+            # attributes. Left empty, those entities publish nothing and the
+            # guard below would silently skip them.
+            yesterday={
+                "cost": reconcile_day(
+                    [buy], dt_util.now().date() - timedelta(days=1), "amountAll",
+                    dt_util.now().tzinfo,
+                ),
+                "earnings": reconcile_day(
+                    [sell], dt_util.now().date() - timedelta(days=1), "amountAll",
+                    dt_util.now().tzinfo,
+                ),
+            },
         )
     )
     entry.runtime_data = SimpleNamespace(coordinator=coordinator)
