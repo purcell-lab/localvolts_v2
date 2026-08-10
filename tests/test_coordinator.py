@@ -33,7 +33,7 @@ async def test_successful_fetch_partitions_the_interval_feed(hass):
     )
     v2_client.fetch_market_stats = AsyncMock(return_value=None)
 
-    coordinator = LocalVoltsCoordinator(hass, v2_client, "4001247247")
+    coordinator = LocalVoltsCoordinator(hass, v2_client, "1234567890")
     data = await coordinator._async_update_data()
 
     assert len(data.buy_history) == 1
@@ -44,7 +44,7 @@ async def test_primary_fetch_failure_returns_stale_data_or_raises(hass):
     """v2 failures use stale data if available, otherwise DataUpdateCoordinator fails."""
     client = MagicMock()
     client.fetch_interval = AsyncMock(side_effect=LocalVoltsApiError("offline"))
-    coordinator = LocalVoltsCoordinator(hass, client, "4001247247")
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()

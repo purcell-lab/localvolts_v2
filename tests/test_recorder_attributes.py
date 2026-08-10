@@ -55,7 +55,7 @@ BASE_ATTRIBUTES = {
 HA_APPENDED = {
     "unit_of_measurement": "c/kWh",
     "state_class": "measurement",
-    "friendly_name": "LocalVolts v2 40012345678 Current Buy Rate",
+    "friendly_name": "LocalVolts v2 12345678908 Current Buy Rate",
 }
 
 
@@ -198,18 +198,18 @@ def test_forward_forecast_excludes_the_interval_ending_now():
 
 def test_normalize_nmi_removes_a_separated_checksum_digit():
     """An NMI written with its checksum separated must collapse to one token."""
-    assert normalize_nmi("4001234567 8") == "40012345678"
+    assert normalize_nmi("1234567890 8") == "12345678908"
 
 
 def test_normalize_nmi_handles_surrounding_and_repeated_whitespace():
     """Tabs, newlines and runs of spaces are all removed."""
-    assert normalize_nmi("  4001234567\t8\n") == "40012345678"
-    assert normalize_nmi("4001234567   8") == "40012345678"
+    assert normalize_nmi("  1234567890\t8\n") == "12345678908"
+    assert normalize_nmi("1234567890   8") == "12345678908"
 
 
 def test_normalize_nmi_leaves_a_clean_value_untouched():
     """A already clean NMI must pass through unchanged."""
-    assert normalize_nmi("40012345678") == "40012345678"
+    assert normalize_nmi("12345678908") == "12345678908"
     assert normalize_nmi("") == ""
 
 
@@ -218,13 +218,13 @@ async def _all_entities(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_NMI: "40012345678",
+            CONF_NMI: "12345678908",
             CONF_API_KEY: "key",
             CONF_PARTNER_ID: "1",
         },
     )
     entry.add_to_hass(hass)
-    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "40012345678")
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "12345678908")
     buy = {
         "direction": "Buy",
         "quality": "Exp",
