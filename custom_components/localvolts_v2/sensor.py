@@ -4,7 +4,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -16,8 +20,11 @@ from .api import parse_interval_end
 from .const import (
     ATTR_AMOUNT_ALL,
     ATTR_AMOUNT_DEMAND,
+    ATTR_AMOUNT_DEMAND_TODAY,
     ATTR_AMOUNT_FIXED,
+    ATTR_AMOUNT_FIXED_TODAY,
     ATTR_AMOUNT_VAR,
+    ATTR_AMOUNT_VAR_TODAY,
     ATTR_CALCULATION,
     ATTR_CAVEAT,
     ATTR_DESCRIPTION,
@@ -43,6 +50,7 @@ from .const import (
     DEVICE_MANUFACTURER,
     DEVICE_NAME,
     DEVICE_MODEL,
+    CURRENCY_AUD,
     DIRECTION_SELL,
     DOMAIN,
     FORECAST_FIELD_DIGITS,
@@ -116,6 +124,7 @@ async def async_setup_entry(
         LocalVoltsCurrentSellRateSensor(coordinator, entry),
         LocalVoltsDailyCostSensor(coordinator, entry),
         LocalVoltsDailyEarningsSensor(coordinator, entry),
+        LocalVoltsDailyNetCostSensor(coordinator, entry),
         LocalVoltsYesterdayReconciliationSensor(
             coordinator, entry, key="cost", label="Yesterday Cost"
         ),
@@ -247,13 +256,34 @@ class LocalVoltsCurrentSellRateSensor(_CurrentRateSensor):
 
 
 class _DailySettledAmountSensor(LocalVoltsSensorBase):
-    """Base class for daily settled import and export amount totals."""
+    """Base class for daily settled import and export amount totals.
 
-    # calculation is a fixed description of the sum, not a measurement.
-    _unrecorded_attributes = frozenset({ATTR_CALCULATION})
+    The state class is TOTAL rather than MEASUREMENT because Home Assistant
+    excludes the monetary device class from MEASUREMENT long term statistics,
+    so a monetary MEASUREMENT sensor records mean, min and max but never a sum.
+    A sum is the whole point of a cost total, and it is what lets a month or a
+    year be read back for a bill comparison.
 
-    _attr_native_unit_of_measurement = "$"
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    TOTAL is paired with last_reset because this total returns to zero at local
+    midnight. Without last_reset the reset would be recorded as a decline the
+    size of a whole day, which would cancel the day out of the running sum.
+    TOTAL also tolerates the total moving down within a day, which happens on
+    negative prices, where TOTAL_INCREASING would read the dip as a new meter
+    cycle.
+    """
+
+    # calculation and caveat are fixed descriptions of the sum, not measurements.
+    _unrecorded_attributes = frozenset({ATTR_CALCULATION, ATTR_CAVEAT})
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = CURRENCY_AUD
+    _attr_state_class = SensorStateClass.TOTAL
+
+    _COMPONENT_ATTRS = {
+        ATTR_AMOUNT_VAR_TODAY: ATTR_AMOUNT_VAR,
+        ATTR_AMOUNT_FIXED_TODAY: ATTR_AMOUNT_FIXED,
+        ATTR_AMOUNT_DEMAND_TODAY: ATTR_AMOUNT_DEMAND,
+    }
 
     def __init__(
         self,
@@ -278,18 +308,38 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
             return self.coordinator.data.buy_history
         return self.coordinator.data.sell_history
 
-    def _today_total(self) -> tuple[float, int]:
-        """Sum settled records for the Home Assistant local calendar date."""
+    def _today_records(self) -> list[dict[str, Any]]:
+        """Return the records whose interval falls on today's local date."""
         today = dt_util.now().date()
+        return [
+            record
+            for record in self._records
+            if (local := _record_local_date(record)) is not None
+            and local.date() == today
+        ]
+
+    def _sum_key(self, records: list[dict[str, Any]], key: str) -> tuple[float, int]:
         total = 0.0
         count = 0
-        for record in self._records:
-            interval_end = _record_local_date(record)
-            value = _number(record, self._amount_key)
-            if interval_end is not None and interval_end.date() == today and value is not None:
+        for record in records:
+            value = _number(record, key)
+            if value is not None:
                 total += value
                 count += 1
         return round(total, 6), count
+
+    def _today_total(self) -> tuple[float, int]:
+        """Sum settled records for the Home Assistant local calendar date."""
+        return self._sum_key(self._today_records(), self._amount_key)
+
+    @property
+    def last_reset(self) -> datetime:
+        """Return the local midnight this total counts from.
+
+        The sum only ever covers today's local date, so the zero point moves at
+        local midnight and Home Assistant is told so explicitly.
+        """
+        return dt_util.start_of_local_day()
 
     @property
     def native_value(self) -> float:
@@ -298,18 +348,31 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Describe the total so it is clear that it excludes forecasts.
+        """Describe the total, its parts, and how far it can be trusted.
 
         The count reports only the intervals that contributed to the sum. The
         coordinator retains about three days of settled history for other
         consumers, so the length of that history would overstate today.
+
+        The components are reported alongside the total because amountAll
+        already carries network and fixed charges. Splitting them here saves a
+        template and makes it obvious that the supply charge accrues even on a
+        day with no import.
         """
-        return {
+        records = self._today_records()
+        attributes: dict[str, Any] = {
             ATTR_CALCULATION: (
                 f"sum({self._amount_key}) over today's settled intervals"
             ),
-            ATTR_SETTLED_INTERVAL_COUNT: self._today_total()[1],
+            ATTR_CAVEAT: (
+                "Forecast grade. The amount fields are written when the forecast "
+                "is built and are not revised when an interval settles."
+            ),
+            ATTR_SETTLED_INTERVAL_COUNT: self._sum_key(records, self._amount_key)[1],
         }
+        for attribute, key in self._COMPONENT_ATTRS.items():
+            attributes[attribute] = self._sum_key(records, key)[0]
+        return attributes
 
 
 class LocalVoltsDailyCostSensor(_DailySettledAmountSensor):
@@ -336,6 +399,64 @@ class LocalVoltsDailyEarningsSensor(_DailySettledAmountSensor):
             label="Daily Earnings",
             amount_key=ATTR_AMOUNT_ALL,
         )
+
+
+class LocalVoltsDailyNetCostSensor(_DailySettledAmountSensor):
+    """Today's import cost less today's export earnings.
+
+    This is the closest thing the API supports to a running bill for the day,
+    because amountAll already carries the variable, fixed and demand parts. It
+    is still an estimate, for the reasons in the caveat attribute.
+    """
+
+    def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(
+            coordinator,
+            entry,
+            direction="net_cost",
+            label="Daily Net Cost",
+            amount_key=ATTR_AMOUNT_ALL,
+        )
+
+    @property
+    def _records(self) -> list[dict[str, Any]]:
+        """Return import records only, so the inherited helpers stay meaningful.
+
+        The export leg is subtracted separately in native_value rather than
+        being mixed in here, because the two legs carry opposite signs and the
+        component attributes describe the import side.
+        """
+        if self.coordinator.data is None:
+            return []
+        return self.coordinator.data.buy_history
+
+    def _today_export(self) -> float:
+        """Sum today's export amounts from the sell history."""
+        if self.coordinator.data is None:
+            return 0.0
+        today = dt_util.now().date()
+        records = [
+            record
+            for record in self.coordinator.data.sell_history
+            if (local := _record_local_date(record)) is not None
+            and local.date() == today
+        ]
+        return self._sum_key(records, ATTR_AMOUNT_ALL)[0]
+
+    @property
+    def native_value(self) -> float:
+        """Return import cost less export earnings for today."""
+        return round(self._today_total()[0] - self._today_export(), 6)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Show both legs so the subtraction is visible rather than implied."""
+        attributes = super().extra_state_attributes
+        attributes[ATTR_CALCULATION] = (
+            "sum(amountAll) over today's import intervals "
+            "less sum(amountAll) over today's export intervals"
+        )
+        return attributes
 
 
 class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):

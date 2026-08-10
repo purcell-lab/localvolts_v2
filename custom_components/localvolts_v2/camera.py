@@ -71,7 +71,12 @@ class LocalVoltsForecastChartCamera(CoordinatorEntity[LocalVoltsCoordinator], Ca
         data = self.coordinator.data
         if data is None:
             return self._image_bytes
-        return render_forecast_chart(data.buy_forecast, data.sell_forecast)
+        return render_forecast_chart(
+            data.buy_forecast,
+            data.sell_forecast,
+            data.buy_history,
+            data.sell_history,
+        )
 
     async def _async_refresh_image(self) -> None:
         """Run rendering outside the event loop and retain prior data on failure."""

@@ -15,6 +15,9 @@ from .api import (
     LocalVoltsApiError,
     LocalVoltsAuthError,
     LocalVoltsClient,
+    LocalVoltsCredentialError,
+    LocalVoltsNmiScopeError,
+    LocalVoltsNoDataError,
     normalize_api_key,
     normalize_nmi,
 )
@@ -51,10 +54,41 @@ class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     async_get_clientsession(self.hass), api_key, partner_id
                 )
                 await client.fetch_version()
-                await client.fetch_interval(nmi)
+                records = await client.fetch_interval(nmi)
+                if not records:
+                    # Authentication and NMI authorization both passed, yet the
+                    # feed returned nothing. Accepting this would create an
+                    # entry that loads cleanly and never produces a value, and
+                    # the resulting "all entities unavailable" is far harder to
+                    # diagnose later than a refusal here.
+                    #
+                    # This is checked only at setup. The coordinator stays
+                    # tolerant of an empty poll, because a transient gap should
+                    # not tear down a working integration.
+                    raise LocalVoltsNoDataError(
+                        f"LocalVolts returned no interval records for NMI {nmi}"
+                    )
+            # Ordered most specific first. Both credential errors subclass
+            # LocalVoltsAuthError, so a bare LocalVoltsAuthError clause placed
+            # above them would swallow both and undo the whole point of this.
+            except LocalVoltsCredentialError as exc:
+                _LOGGER.warning(
+                    "LocalVolts v2 did not accept the API key and partner ID: %s", exc
+                )
+                errors["base"] = "invalid_credentials"
+            except LocalVoltsNmiScopeError as exc:
+                _LOGGER.warning(
+                    "LocalVolts v2 credentials are valid but the NMI is not "
+                    "authorized for them: %s",
+                    exc,
+                )
+                errors["base"] = "nmi_not_authorized"
             except LocalVoltsAuthError as exc:
                 _LOGGER.warning("LocalVolts v2 authorization check failed: %s", exc)
                 errors["base"] = "invalid_auth"
+            except LocalVoltsNoDataError as exc:
+                _LOGGER.warning("LocalVolts v2 returned no interval data: %s", exc)
+                errors["base"] = "no_data"
             except aiohttp.ClientError as exc:
                 _LOGGER.warning("LocalVolts v2 connectivity check failed: %s", exc)
                 errors["base"] = "cannot_connect"

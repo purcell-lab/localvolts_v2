@@ -16,6 +16,18 @@ grey to keep it clearly subordinate to the six settlement prices.
 The lower panel carries the remaining forecasts, which are two units, so it is
 split across twin axes. Power in kW on the left, the matched percentage on the
 right.
+
+Both panels span the whole local day, so the elapsed part sits beside what is
+still to come. Firmness is drawn with opacity: elapsed intervals are solid and
+forward ones are faded, behind a "now" marker. Opacity is used because line
+style is already spoken for, encoding which prices blend into which.
+
+The faded part is labelled forward, not estimated, and the solid part is not
+labelled settled. Promotion from Fcst to Exp was measured to rewrite only
+spotCost, leaving the plotted rates and volumes exactly as forecast, so an
+elapsed interval here is an elapsed forecast rather than a measurement. Calling
+it settled on the chart would assert something the feed does not support. See
+docs/settlement.md.
 """
 from __future__ import annotations
 
@@ -45,6 +57,12 @@ from .haeo_feed import (
 )
 
 CENTS_PER_DOLLAR = 100.0
+
+# Elapsed intervals draw at full strength and forward ones washed out. Far
+# enough apart to read at a glance, not so far that the forecast, which is most
+# of the horizon on a morning render, becomes hard to follow.
+_ELAPSED_ALPHA = 1.0
+_FORWARD_ALPHA = 0.4
 
 
 def _parse_local_time(value: Any) -> datetime | None:
@@ -180,8 +198,43 @@ _PROPORTION_SERIES: tuple[tuple[str, str, Callable[[dict[str, Any]], float | Non
 )
 
 
-def _plot(axis: Any, series: tuple, sources: dict[str, list[dict[str, Any]]], width: float) -> list:
-    """Draw one group of series onto an axis and return the drawn handles."""
+def _split_at(
+    times: list[datetime], values: list[float], boundary: datetime | None
+) -> tuple[tuple[list[datetime], list[float]], tuple[list[datetime], list[float]]]:
+    """Split one series into its elapsed and forward halves at the boundary.
+
+    The first forward point is the last elapsed one repeated, so the two halves
+    meet rather than leaving a gap at the join. Without that the line would
+    appear to break every render, at a point where nothing actually happens.
+    """
+    if boundary is None:
+        return (times, values), ([], [])
+    cut = len(times)
+    for index, moment in enumerate(times):
+        if moment > boundary:
+            cut = index
+            break
+    elapsed_times, elapsed_values = times[:cut], values[:cut]
+    forward_times, forward_values = times[cut:], values[cut:]
+    if elapsed_times and forward_times:
+        forward_times = elapsed_times[-1:] + forward_times
+        forward_values = elapsed_values[-1:] + forward_values
+    return (elapsed_times, elapsed_values), (forward_times, forward_values)
+
+
+def _plot(
+    axis: Any,
+    series: tuple,
+    sources: dict[str, list[dict[str, Any]]],
+    width: float,
+    boundary: datetime | None = None,
+) -> list:
+    """Draw one group of series onto an axis and return the drawn handles.
+
+    Each signal is drawn as two lines sharing a colour and style, differing
+    only in opacity. Only the elapsed half carries the label, so splitting a
+    signal by firmness does not double its legend entry.
+    """
     handles = []
     for direction, label, derive, colour, style, marker in series:
         times, values = _extract(sources[direction], derive)
@@ -189,25 +242,73 @@ def _plot(axis: Any, series: tuple, sources: dict[str, list[dict[str, Any]]], wi
         # nothing, so a signal that never resolved is left off entirely.
         if not times or not any(value == value for value in values):
             continue
-        line, = axis.plot(
-            times,
-            values,
-            label=label,
-            color=colour,
-            linestyle=style,
-            linewidth=width,
-            marker=marker or None,
-            markersize=4,
-        )
-        handles.append(line)
+        elapsed, forward = _split_at(times, values, boundary)
+        labelled = None
+        for (segment_times, segment_values), alpha in (
+            (elapsed, _ELAPSED_ALPHA),
+            (forward, _FORWARD_ALPHA),
+        ):
+            if not segment_times:
+                continue
+            line, = axis.plot(
+                segment_times,
+                segment_values,
+                label=label if labelled is None else "_nolegend_",
+                color=colour,
+                linestyle=style,
+                linewidth=width,
+                alpha=alpha,
+                marker=marker or None,
+                markersize=4,
+            )
+            if labelled is None:
+                labelled = line
+        if labelled is not None:
+            handles.append(labelled)
     return handles
+
+
+def _mark_now(axis: Any, boundary: datetime | None) -> None:
+    """Draw the boundary between what has elapsed and what is still forecast."""
+    if boundary is None:
+        return
+    axis.axvline(
+        boundary,
+        color="#444444",
+        linewidth=1.0,
+        linestyle="-",
+        alpha=0.7,
+        zorder=0,
+    )
+
+
+def _today_elapsed(records: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+    """Return the elapsed intervals belonging to the current local day.
+
+    History reaches back two days because the coordinator polls that far, which
+    is right for reconciliation and far too wide for a chart. Anything before
+    local midnight would squeeze today into a third of the axis.
+    """
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    kept = []
+    for record in records:
+        moment = _parse_local_time(record.get("intervalEnd"))
+        if moment is not None and midnight < moment <= now:
+            kept.append(record)
+    return kept
 
 
 def render_forecast_chart(
     buy_forecast: list[dict[str, Any]],
     sell_forecast: list[dict[str, Any]],
+    buy_history: list[dict[str, Any]] | None = None,
+    sell_history: list[dict[str, Any]] | None = None,
 ) -> bytes:
-    """Render the LocalVolts forecast as an in-memory PNG of two panels."""
+    """Render the LocalVolts day as an in-memory PNG of two panels.
+
+    History is optional so a caller that only holds a forecast still gets a
+    chart, in which case everything is drawn as forward.
+    """
     fig, (price_axis, other_axis) = plt.subplots(
         2,
         1,
@@ -217,10 +318,22 @@ def render_forecast_chart(
         gridspec_kw={"height_ratios": [3, 2]},
     )
     try:
-        sources = {"buy": buy_forecast or [], "sell": sell_forecast or []}
+        now = dt_util.now()
+        elapsed = {
+            "buy": _today_elapsed(buy_history or [], now),
+            "sell": _today_elapsed(sell_history or [], now),
+        }
+        sources = {
+            "buy": elapsed["buy"] + (buy_forecast or []),
+            "sell": elapsed["sell"] + (sell_forecast or []),
+        }
+        # No elapsed rows means nothing to distinguish, so the boundary is
+        # dropped rather than drawn at an edge where it would imply the whole
+        # day had already run.
+        boundary = now if (elapsed["buy"] or elapsed["sell"]) else None
 
-        price_handles = _plot(price_axis, _PRICE_SERIES, sources, 1.6)
-        price_handles += _plot(price_axis, _INCENTIVE_SERIES, sources, 0.9)
+        price_handles = _plot(price_axis, _PRICE_SERIES, sources, 1.6, boundary)
+        price_handles += _plot(price_axis, _INCENTIVE_SERIES, sources, 0.9, boundary)
 
         if not price_handles and not (sources["buy"] or sources["sell"]):
             other_axis.set_axis_off()
@@ -238,6 +351,7 @@ def render_forecast_chart(
             price_axis.set_ylabel("c/kWh")
             price_axis.set_title("Price signals, the spot and peer legs and the rate they blend to")
             price_axis.grid(True, alpha=0.3)
+            _mark_now(price_axis, boundary)
             if price_handles:
                 price_axis.legend(loc="upper left", fontsize=8, ncol=3)
 
@@ -246,9 +360,9 @@ def render_forecast_chart(
             # proportion, which runs to 100, would flatten the power series,
             # which runs to about 2.
             proportion_axis = other_axis.twinx()
-            power_handles = _plot(other_axis, _POWER_SERIES, sources, 1.4)
+            power_handles = _plot(other_axis, _POWER_SERIES, sources, 1.4, boundary)
             proportion_handles = _plot(
-                proportion_axis, _PROPORTION_SERIES, sources, 1.2
+                proportion_axis, _PROPORTION_SERIES, sources, 1.2, boundary
             )
 
             other_axis.set_ylabel("kW")
@@ -256,6 +370,7 @@ def render_forecast_chart(
             proportion_axis.set_ylim(0, 105)
             other_axis.set_title("Volume, peer matched flow, and matched share")
             other_axis.grid(True, alpha=0.3)
+            _mark_now(other_axis, boundary)
             handles = power_handles + proportion_handles
             if handles:
                 other_axis.legend(
@@ -267,8 +382,26 @@ def render_forecast_chart(
                 )
             _configure_time_axis(other_axis)
 
-        fig.suptitle("LocalVolts v2 Forecast")
-        fig.tight_layout()
+        if boundary is None:
+            fig.suptitle("LocalVolts v2 Forecast")
+            fig.tight_layout()
+        else:
+            # The caption needs its own band above the panels. Left to
+            # tight_layout alone it lands on top of the title, because figure
+            # text is not an artist tight_layout reserves room for.
+            fig.suptitle("LocalVolts v2 Forecast", y=0.985)
+            # Stated on the figure rather than left to the reader, because a
+            # faded line invites the assumption that the solid part is final.
+            fig.text(
+                0.5,
+                0.947,
+                "Solid left of the marker has elapsed, faded right is forecast. "
+                "Elapsed is not settled.",
+                ha="center",
+                fontsize=8,
+                color="#555555",
+            )
+            fig.tight_layout(rect=(0, 0, 1, 0.935))
         buffer = BytesIO()
         fig.savefig(buffer, format="png")
         return buffer.getvalue()

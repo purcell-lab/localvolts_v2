@@ -18,8 +18,49 @@ class LocalVoltsApiError(Exception):
     """Raised when LocalVolts returns an API-level error."""
 
 
+class LocalVoltsNoDataError(LocalVoltsApiError):
+    """Raised when LocalVolts authenticates but returns no interval records.
+
+    Separated from a plain API error because the remedy is different. Nothing
+    is malformed and nothing was rejected; the credentials are accepted and the
+    feed is simply empty, which points at the account rather than at
+    connectivity.
+    """
+
+
 class LocalVoltsAuthError(LocalVoltsApiError):
-    """Raised when supplied LocalVolts credentials or NMI scope are invalid."""
+    """Raised when supplied LocalVolts credentials or NMI scope are invalid.
+
+    Kept as the base of the two specific cases below so that callers which only
+    need to know that authorization failed can still catch one exception.
+    """
+
+
+class LocalVoltsCredentialError(LocalVoltsAuthError):
+    """Raised when v2 does not accept the API key and partner ID at all.
+
+    v2 reports this as ``Not Authenticated`` in a JSON array body with HTTP 200,
+    not as a 401, which is why it is easy to mistake for a connectivity fault.
+
+    Measured on 2026-08-10: a deliberately invalid key and partner ID against
+    ``/v2/customer/interval`` returned ``[{"error": "Not Authenticated"}]`` with
+    HTTP 200.
+
+    The common cause is a v1 key. v1 and v2 issue separate credentials, and a
+    v1 key presented to v2 is simply not recognised, so the remedy is to request
+    v2 credentials rather than to re-check the NMI.
+    """
+
+
+class LocalVoltsNmiScopeError(LocalVoltsAuthError):
+    """Raised when the credentials are valid for v2 but the NMI is not in scope.
+
+    v2 reports this as ``Not Authorised``, again in a JSON array body with HTTP
+    200. Measured on 2026-08-10 by requesting an NMI the key does not cover.
+
+    The distinction from LocalVoltsCredentialError matters because the remedy is
+    the opposite: the credentials are correct and the NMI is wrong.
+    """
 
 
 def normalize_api_key(api_key: str) -> str:
@@ -98,8 +139,13 @@ class LocalVoltsClient:
             if isinstance(candidate, dict) and candidate.get("error")
             else None
         )
-        if raw_error in {"Not Authenticated", "Not Authorised"}:
-            raise LocalVoltsAuthError(raw_error)
+        # These two are both reported with HTTP 200 and differ only by this
+        # string, yet they call for opposite remedies, so they are kept apart
+        # all the way out to the config flow message.
+        if raw_error == "Not Authenticated":
+            raise LocalVoltsCredentialError(raw_error)
+        if raw_error == "Not Authorised":
+            raise LocalVoltsNmiScopeError(raw_error)
         error = LocalVoltsClient._error_from_payload(payload)
         if error is None:
             return

@@ -89,6 +89,16 @@ ATTR_FLEX_UP = "flexUp"
 ATTR_FLEX_DOWN = "flexDown"
 ATTR_EMISSIONS = "emissions"
 
+# ISO 4217, required by Home Assistant for the monetary device class. LocalVolts
+# is an Australian retailer and the API reports amounts with a bare "$".
+CURRENCY_AUD = "AUD"
+
+# Today's running components of amountAll, exposed so a bill estimate can be
+# broken into its energy, supply and demand parts without a template.
+ATTR_AMOUNT_VAR_TODAY = "amount_var_today"
+ATTR_AMOUNT_FIXED_TODAY = "amount_fixed_today"
+ATTR_AMOUNT_DEMAND_TODAY = "amount_demand_today"
+
 # Attributes that describe an entity rather than measure anything. They never
 # change once the entity exists, so recording them writes a fresh attributes row
 # for no benefit. They stay on the live state for dashboards and templates.

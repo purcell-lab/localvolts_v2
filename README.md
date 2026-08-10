@@ -2,7 +2,7 @@
 
 A Home Assistant custom integration for LocalVolts interval pricing, costs, peer to peer information, market statistics, and a forecast chart rendered locally.
 
-![Two panel forecast chart, six price signals above and volumes with matched share below](docs/forecast_chart.png)
+![Two panel forecast chart, six price signals above and volumes with matched share below, elapsed intervals solid and forward ones faded either side of a now marker](docs/forecast_chart.png)
 
 Six price signals on top, three per direction, because every interval settles in two parts: the share a peer took and the share the market settled. The effective rate is the blend of the two, so each solid line sits between its own dashed and dotted legs. Volumes and matched share sit below on a shared time axis.
 
@@ -52,13 +52,29 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 |---|---|
 | Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Buy forecast. |
 | Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Sell forecast. |
-| Daily Cost | Sum of today's elapsed Buy `amountAll` records. |
-| Daily Earnings | Sum of today's elapsed Sell `amountAll` records. This represents total export interval earnings, not only P2P-matched value. |
+| Daily Cost | Sum of today's elapsed Buy `amountAll` records, in AUD. |
+| Daily Earnings | Sum of today's elapsed Sell `amountAll` records, in AUD. This represents total export interval earnings, not only P2P-matched value. |
+| Daily Net Cost | Daily Cost less Daily Earnings, in AUD. Goes negative on a day that exports more value than it imports. |
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
+
+### Cost accounting
+
+The three money entities carry the monetary device class, an ISO 4217 unit of `AUD`, and the `total` state class with `last_reset` at local midnight. That combination is deliberate:
+
+- Home Assistant excludes the monetary device class from `measurement` long term statistics, so a monetary `measurement` sensor records mean, min and max and never a sum. A month or a year of cost cannot be read back from it.
+- `total_increasing` is wrong here because negative prices can make a daily cost fall during the day, which would be read as a meter reset.
+- `last_reset` tells the recorder that the return to zero at midnight is a new counting period rather than a fall the size of a whole day.
+
+`amountAll` already includes network, supply and any demand charge. Each money entity exposes the split as `amount_var_today`, `amount_fixed_today` and `amount_demand_today`, and the three reconstruct the total. The fixed component accrues on every interval, so it accumulates on a day with no import at all. There is no separate certificate line in the API, so certificate costs cannot be broken out.
+
+These totals are forecast grade, and each one says so in its `caveat` attribute. See [the note on settlement and the dollar fields](docs/p2p-forecast.md) for the measurement behind that.
+
+For comparing a month or a year of this against a real invoice, and for what the differences will mean, see [reconciling against an invoice](docs/billing.md).
+
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
 
@@ -112,6 +128,10 @@ The upper panel carries the six price signals. Buy is warm and sell is cool, so 
 
 The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
 
+Both panels span the whole local day, so what has already happened sits beside what is still to come, divided by a marker at the current interval. Elapsed intervals are drawn solid and forward ones faded. Opacity carries this rather than line style, because line style is already spoken for encoding which prices blend into which.
+
+The faded part is labelled forward, and the solid part is deliberately not labelled settled. Promotion from `Fcst` to `Exp` rewrites only `spotCost` and leaves the plotted rates and volumes exactly as forecast, so an elapsed interval on this chart is an elapsed forecast, not a measurement. See [docs/settlement.md](docs/settlement.md).
+
 Peer matched series carry point markers rather than lines alone. Matching arrives as isolated five minute intervals, so a match with nothing either side draws no line segment and would otherwise be invisible. Intervals where a quantity is undefined are drawn as a break in the line rather than dropped, because dropping them lets the plot join across the gap and draw a match that never happened.
 
 Rendered from a real 24 hour window at a single residential premises. The chart carries no meter identifier, so it is safe to share.
@@ -155,9 +175,14 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - v2 historical data is limited to approximately three days and forecast data is limited to approximately one day ahead, usually through the end of the current local day. The coordinator requests from two local calendar days ago through tomorrow.
 - `spotCost` is exact on elapsed rows, following `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, which reproduces 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01% and fits with an R squared of 1.000000. The supplied specification described it as unreliable and inflated by about 1050 times; the observed loss factor times 1000 is 1050.07, so that reads as a $/MWh against $/kWh unit error rather than a faulty field. The trap that does catch people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate by 19.38% on export here. See [docs/settlement.md](docs/settlement.md).
 - `rateAllVar` is the proportion weighted blend of the peer matched rate and the spot rate, plus a constant variable network and retail layer on import. Measured on forecast rows only. See the [peer to peer forecast notes](docs/p2p-forecast.md) for the arithmetic and the residuals.
-- `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification.
+- `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification. The first identity was also checked here against three days of live data, and held on every interval in both directions to within 2e-08 dollars, which is float noise rather than disagreement.
+- `amountFixed` carries the fixed daily supply charge, spread evenly across the day. It is one constant value on every import interval, sums to the daily charge over a local day, and is zero on every export interval. `amountDemand` is zero on a site with no demand tariff. So `amountAll` already includes network and fixed charges, and a total built from it is a bill estimate rather than an energy-only figure.
+
+Settlement rewrites `spotCost` and nothing else. Across 48 intervals observed moving from `Fcst` to `Exp` on 2026-08-10, `amountAll`, `amountVar`, `amountFixed`, `amountDemand`, `volume`, `proportionP2P`, `matchedCost` and `rateAllVar` were all unchanged. The dollar fields are written once when the forecast is built and are never revised, so any cost total is forecast grade even after the interval has elapsed.
 
 For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
+
+If HAEO schedules a battery discharge earlier than the prices justify, see [Troubleshooting](docs/troubleshooting.md).
 
 ## Settlement quality and what the totals are worth
 
