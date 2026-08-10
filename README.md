@@ -71,6 +71,8 @@ The three money entities carry the monetary device class, an ISO 4217 unit of `A
 
 These totals are forecast grade, and each one says so in its `caveat` attribute. See [the note on settlement and the dollar fields](docs/p2p-forecast.md) for the measurement behind that.
 
+For comparing a month or a year of this against a real invoice, and for what the differences will mean, see [reconciling against an invoice](docs/billing.md).
+
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
 
