@@ -58,7 +58,7 @@ def _record(direction: str, **values) -> dict:
 
 
 def _coordinator(hass, *, buy=None, sell=None, buy_forecast=None, sell_forecast=None):
-    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "40012345678")
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "12345678908")
     coordinator.async_set_updated_data(
         LocalVoltsData(
             current_buy=buy,
@@ -75,7 +75,7 @@ def _coordinator(hass, *, buy=None, sell=None, buy_forecast=None, sell_forecast=
 
 
 def _sensors(hass, **kwargs) -> dict:
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "40012345678"})
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "12345678908"})
     coordinator = _coordinator(hass, **kwargs)
     return {sensor._definition.key: sensor for sensor in build_haeo_feed_sensors(coordinator, entry)}
 
@@ -290,7 +290,7 @@ async def test_the_recorded_payload_stays_small_however_long_the_horizon(hass):
         attributes = {
             **sensor.extra_state_attributes,
             "unit_of_measurement": sensor.native_unit_of_measurement,
-            "friendly_name": "LocalVolts v2 40012345678 HAEO Buy Price",
+            "friendly_name": "LocalVolts v2 12345678908 HAEO Buy Price",
         }
         kept = {
             key: value

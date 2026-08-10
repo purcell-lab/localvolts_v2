@@ -34,7 +34,7 @@ def normalize_nmi(nmi: str) -> str:
     """Remove all whitespace from an NMI.
 
     A National Metering Identifier is often written with its checksum digit
-    separated, for example "4001234567 8". The API tolerates the space and
+    separated, for example "1234567890 8". The API tolerates the space and
     answers for the base NMI, but the raw value would otherwise leak into
     entity ids, the device name and the chart title.
     """

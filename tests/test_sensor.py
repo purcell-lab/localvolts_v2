@@ -51,7 +51,7 @@ def _record(direction: str, quality: str, **values) -> dict:
 
 
 def _coordinator(hass):
-    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "4001247247")
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "1234567890")
     buy = _record("Buy", "Exp")
     data = LocalVoltsData(
         current_buy=buy,
@@ -70,7 +70,7 @@ def _coordinator(hass):
 @pytest.mark.usefixtures("enable_custom_integrations")
 async def test_current_buy_sensor_state_and_forecast_attribute(hass):
     """The Buy rate state and compact forward forecast are exposed to templates."""
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "4001247247"})
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
     sensor = LocalVoltsCurrentBuyRateSensor(_coordinator(hass), entry)
 
     assert sensor.native_value == 31.2
@@ -90,7 +90,7 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
     The coordinator keeps about three days of settled history for other
     consumers, so reporting its length would badly overstate a daily total.
     """
-    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "4001247247")
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "1234567890")
     # Anchor on local midday so the sample cannot straddle midnight.
     midday = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
     today = [
@@ -113,7 +113,7 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
             last_update=datetime.now(timezone.utc),
         )
     )
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "4001247247"})
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
     sensor = LocalVoltsDailyCostSensor(coordinator, entry)
 
     assert sensor.native_value == pytest.approx(0.30)

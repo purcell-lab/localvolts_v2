@@ -36,7 +36,7 @@ async def test_user_flow_takes_one_credential_pair(hass):
             {
                 CONF_API_KEY: "raw-key",
                 CONF_PARTNER_ID: "partner",
-                CONF_NMI: "4001247247",
+                CONF_NMI: "1234567890",
             },
         )
 
@@ -71,7 +71,7 @@ async def test_user_flow_reports_invalid_auth(hass):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {CONF_API_KEY: "key", CONF_PARTNER_ID: "partner", CONF_NMI: "4001247247"},
+            {CONF_API_KEY: "key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
         )
 
     assert result["type"] is FlowResultType.FORM
@@ -88,7 +88,7 @@ async def test_user_flow_reports_connectivity_error(hass):
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {CONF_API_KEY: "key", CONF_PARTNER_ID: "partner", CONF_NMI: "4001247247"},
+            {CONF_API_KEY: "key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
         )
 
     assert result["type"] is FlowResultType.FORM
@@ -114,15 +114,15 @@ async def test_user_flow_normalizes_a_separated_nmi_checksum(hass):
             {
                 CONF_API_KEY: "key",
                 CONF_PARTNER_ID: "partner",
-                CONF_NMI: " 4001234567 8 ",
+                CONF_NMI: " 1234567890 8 ",
             },
         )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_NMI] == "40012345678"
-    assert result["title"] == "LocalVolts v2 40012345678"
+    assert result["data"][CONF_NMI] == "12345678908"
+    assert result["title"] == "LocalVolts v2 12345678908"
     # The cleaned NMI must also be what is sent to the API.
-    client.fetch_interval.assert_awaited_once_with("40012345678")
+    client.fetch_interval.assert_awaited_once_with("12345678908")
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -131,11 +131,11 @@ async def test_a_version_one_entry_loses_its_second_credential_pair(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,
         version=1,
-        unique_id=f"{DOMAIN}_4001247247",
+        unique_id=f"{DOMAIN}_1234567890",
         data={
             CONF_API_KEY: "apikey key",
             CONF_PARTNER_ID: "partner",
-            CONF_NMI: "4001247247",
+            CONF_NMI: "1234567890",
             "v1_api_key": "apikey old-v1-key",
             "v1_partner_id": "old-v1-partner",
         },
@@ -156,8 +156,8 @@ async def test_migration_refuses_a_future_entry_rather_than_guessing(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,
         version=3,
-        unique_id=f"{DOMAIN}_4001247247",
-        data={CONF_API_KEY: "apikey key", CONF_PARTNER_ID: "partner", CONF_NMI: "4001247247"},
+        unique_id=f"{DOMAIN}_1234567890",
+        data={CONF_API_KEY: "apikey key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
     )
     entry.add_to_hass(hass)
 
@@ -174,11 +174,11 @@ async def test_migration_deletes_the_retired_comparison_entity(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,
         version=1,
-        unique_id=f"{DOMAIN}_4001247247",
+        unique_id=f"{DOMAIN}_1234567890",
         data={
             CONF_API_KEY: "apikey key",
             CONF_PARTNER_ID: "partner",
-            CONF_NMI: "4001247247",
+            CONF_NMI: "1234567890",
             "v1_api_key": "apikey old",
             "v1_partner_id": "old",
         },
