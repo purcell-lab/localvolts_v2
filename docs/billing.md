@@ -77,9 +77,15 @@ Before concluding anything about a percentage gap, confirm you are comparing the
 
 ## A note on calibration factors
 
-A fixed multiplier of `1.0500680` appears in the relationship between the market spot price and the `spotCost` field, which is the shape a loss factor takes. Loss factors are reset annually, so a multiplier that was correct last year is a plausible source of a persistent bias this year.
+A fixed multiplier appears in the relationship between the market spot price and the `spotCost` field. It is the total loss factor for the connection point, the marginal loss factor for the transmission node multiplied by the distribution loss factor for the network tariff class. AEMO states the relationship as `TLF = MLF x DLF` and uses it in settlement.
 
-That is an observation about this feed, not a diagnosis of anyone's bill.
+Both components are published annually by AEMO, by 1 April, effective for the financial year starting 1 July ([Loss factors and regional boundaries](https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/market-operations/loss-factors-and-regional-boundaries), [Forward-looking Transmission Loss Factors methodology](https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/loss_factors_and_regional_boundaries/forward-looking-loss-factor-methodology.pdf)). So the multiplier changes on 1 July every year, and a value that was correct in June is wrong in July.
+
+You can check yours rather than infer it. Divide `spotCost` by the regional reference price times the volume for the interval, and the quotient should be constant. Then look up your own connection point: the retailer portal shows the transmission node identifier and the distribution loss factor code, and AEMO publishes both tables. Multiply the two and compare.
+
+On the connection point used to develop this document the implied multiplier matches the published marginal loss factor for the current financial year to four decimal places. The distribution component could not be confirmed against the current year's table, only against an earlier one, so whether it is current is untested here.
+
+A useful sanity check on scale: for that connection point the marginal loss factor moved by more than one percent in each of the last two annual resets, while the effect of the uncertainty just described is around two hundredths of a percent. A stale loss factor is a real failure mode, but on these numbers it is a small one.
 
 Worth correcting a natural assumption here, because it changes what you look for. Calibration errors do not necessarily present as small discrepancies. The two such incidents on record from another household running their own integration were an import cost calibration factor that had drifted far enough to overstate cost by around 80 percent, and a network time of use rate that was around 11 percent off against their real bill. Neither was subtle.
 
