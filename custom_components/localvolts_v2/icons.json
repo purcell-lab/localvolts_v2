@@ -1,15 +1,32 @@
 {
   "entity": {
     "sensor": {
-      "current_buy_rate": {"default": "mdi:transmission-tower-import"},
-      "current_sell_rate": {"default": "mdi:transmission-tower-export"},
-      "daily_cost": {"default": "mdi:cash-minus"},
-      "daily_earnings": {"default": "mdi:cash-plus"},
-      "p2p_proportion": {"default": "mdi:account-switch"},
-      "market_participants": {"default": "mdi:account-group"}
+      "current_buy_rate": {
+        "default": "mdi:transmission-tower-import"
+      },
+      "current_sell_rate": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "daily_cost": {
+        "default": "mdi:cash-minus"
+      },
+      "daily_earnings": {
+        "default": "mdi:cash-plus"
+      },
+      "p2p_proportion": {
+        "default": "mdi:account-switch"
+      },
+      "market_participants": {
+        "default": "mdi:account-group"
+      },
+      "daily_net_cost": {
+        "default": "mdi:cash-sync"
+      }
     },
     "camera": {
-      "forecast_chart": {"default": "mdi:chart-line"}
+      "forecast_chart": {
+        "default": "mdi:chart-line"
+      }
     }
   }
 }
