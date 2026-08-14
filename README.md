@@ -206,6 +206,16 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.4.0
+
+The Yesterday Cost and Yesterday Earnings sensors gained the monetary device class, so they now display as `A$8.76` rather than `8.76 AUD`. The unit did not change. The device class is what makes the frontend use the locale's currency format.
+
+They also lost their state class, which was `total` in 2.3.0 and was wrong there. The reasoning is under [Cost accounting](#cost-accounting). Home Assistant will raise a repair notice saying these two entities are no longer being recorded, because dropping the state class removes them from long term statistics. That is the intended outcome and the notice can be dismissed. Any statistics collected for them since 2.3.0 described the day to day difference between two unrelated daily totals, so nothing of value is lost.
+
+Both sensors now publish the whole of the previous day as an `intervals` attribute. See [Yesterday's intervals](#yesterdays-intervals).
+
+The repair notice about the money sensor unit changing from `$` to `AUD` is resolved by this release on Home Assistant 2026.4.0 or newer. See [the statistics unit notice](#the-statistics-unit-notice) for what it does and why the version floor exists. If the notice was already dismissed by choosing to update or delete the historic values, that choice stands.
+
 ## Upgrading to 2.3.0
 
 The Daily Cost and Daily Earnings sensors changed unit from `$` to `AUD`, gained the monetary device class, and changed state class from measurement to total with a `last_reset` at local midnight. They were not eligible for long term statistics before this and they are now.
