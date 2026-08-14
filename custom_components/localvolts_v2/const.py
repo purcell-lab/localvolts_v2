@@ -68,6 +68,37 @@ FORECAST_FIELD_DIGITS: dict[str, int] = {
 # Every field published on each forecast row.
 FORECAST_FIELDS: tuple[str, ...] = tuple(FORECAST_FIELD_DIGITS)
 
+# Money and volume fields published on each interval of a reconciled day, with
+# the decimal places each is rounded to. amountAll is the field the total sums,
+# and the three components are carried beside it so a template can see how the
+# day divides into usage, supply charge, and demand without a second request.
+# spotCost is deliberately absent: the API inflates it by roughly 1050 on Exp
+# and Act rows, so publishing it per interval would invite wrong arithmetic.
+#
+# The money and volume fields keep the eight decimals the API reports rather than
+# a friendlier number. An interval is worth a fraction of a cent, and rounding to
+# six loses enough that 288 of them no longer add up to the entity's own total.
+# Measured on a real day, six decimals put the sum of the rows a whole unit in the
+# last place away from the state, which would make the detail contradict the
+# number it is meant to explain. rateAllVar is a rate rather than a summand, and
+# the API reports seven decimals for it.
+INTERVAL_FIELD_DIGITS: dict[str, int] = {
+    "amountAll": 8,
+    "amountVar": 8,
+    "amountFixed": 8,
+    "amountDemand": 8,
+    "volume": 8,
+    "rateAllVar": 7,
+    "proportionP2P": 8,
+    "matchedCost": 8,
+}
+
+# Every numeric field published on each interval row of a reconciled day.
+INTERVAL_FIELDS: tuple[str, ...] = tuple(INTERVAL_FIELD_DIGITS)
+
+ATTR_INTERVALS = "intervals"
+ATTR_INTERVAL_FIELDS = "interval_fields"
+
 ATTR_FORECAST = "forecast"
 ATTR_FORECAST_ENTRIES = "forecast_entries"
 ATTR_FORECAST_FIELDS = "forecast_fields"

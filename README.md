@@ -55,15 +55,17 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Daily Cost | Sum of today's elapsed Buy `amountAll` records, in AUD. |
 | Daily Earnings | Sum of today's elapsed Sell `amountAll` records, in AUD. This represents total export interval earnings, not only P2P-matched value. |
 | Daily Net Cost | Daily Cost less Daily Earnings, in AUD. Goes negative on a day that exports more value than it imports. |
-| Yesterday Cost | Previous local day total import cost, published with a settlement completeness account in its attributes. |
-| Yesterday Earnings | Previous local day total export earnings, with the same completeness account. |
+| Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
+| Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 ### Cost accounting
 
-The three money entities carry the monetary device class, an ISO 4217 unit of `AUD`, and the `total` state class with `last_reset` at local midnight. That combination is deliberate:
+All five money entities carry the monetary device class and an ISO 4217 unit of `AUD`. That pairing is what makes the frontend render them through the locale's currency format, as `A$4.08` rather than `4.08 AUD`. The unit alone is not enough; without the device class Home Assistant falls back to plain numeric formatting and appends the unit as a suffix.
+
+The three daily entities add the `total` state class with `last_reset` at local midnight. That combination is deliberate:
 
 - Home Assistant excludes the monetary device class from `measurement` long term statistics, so a monetary `measurement` sensor records mean, min and max and never a sum. A month or a year of cost cannot be read back from it.
 - `total_increasing` is wrong here because negative prices can make a daily cost fall during the day, which would be read as a meter reset.
@@ -71,7 +73,21 @@ The three money entities carry the monetary device class, an ISO 4217 unit of `A
 
 `amountAll` already includes network, supply and any demand charge. Each money entity exposes the split as `amount_var_today`, `amount_fixed_today` and `amount_demand_today`, and the three reconstruct the total. The fixed component accrues on every interval, so it accumulates on a day with no import at all. There is no separate certificate line in the API, so certificate costs cannot be broken out.
 
+The two Yesterday entities carry no state class at all, which keeps them out of long term statistics. A state class of `total` would record the accumulated growth or decline of the state rather than the state itself, and this value is replaced once a day by an unrelated figure, so those day to day differences describe nothing. `measurement` is not an option either, because Home Assistant does not permit it on a monetary device class. The daily entities already provide the statistics grade accumulation, so nothing is lost.
+
 These totals are forecast grade, and each one says so in its `caveat` attribute. See [the note on settlement and the dollar fields](docs/p2p-forecast.md) for the measurement behind that.
+
+### Yesterday's intervals
+
+Each Yesterday entity publishes the whole of the previous local day as an `intervals` attribute, one row per five minute interval, ordered by `intervalEnd`. Each row carries `intervalEnd`, `quality`, and the fields named in `interval_fields`: `amountAll`, `amountVar`, `amountFixed`, `amountDemand`, `volume`, `rateAllVar`, `proportionP2P` and `matchedCost`. A field the API did not report is published as `null`, never as zero.
+
+The list is complete rather than sampled, so the entity's own total can be checked by adding `amountAll` across the rows. `quality` travels on each row because firmness varies inside a day: a day can be complete and still hold a handful of intervals that never advanced past `Fcst`, and only a per interval quality makes those findable.
+
+`spotCost` is deliberately absent. The API inflates it by roughly 1050 on `Exp` and `Act` rows, so publishing it per interval would invite wrong arithmetic. See [docs/billing.md](docs/billing.md).
+
+A single day query returns 289 rows per direction, not 288, because the response spans midnight to midnight inclusive. By the interval end convention the row ending at 00:00 belongs to the day before, so the day's own 288 rows are the ones ending after 00:00 and up to and including 00:00 the next day. Summing the raw response overstates the day by one interval, which is visible as a supply charge of 289 units instead of 288. The `intervals` attribute is already resolved to the correct 288.
+
+The list is excluded from the recorder. That exclusion is applied before Home Assistant measures a state against its attribute size limit, so no interval and no field is ever dropped to make the state fit. The attribute does still cross the websocket to every open dashboard on each poll, so a template that only needs the total should read the state rather than reduce the list.
 
 For comparing a month or a year of this against a real invoice, and for what the differences will mean, see [reconciling against an invoice](docs/billing.md).
 
@@ -190,13 +206,33 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.4.0
+
+The Yesterday Cost and Yesterday Earnings sensors gained the monetary device class, so they now display as `A$8.76` rather than `8.76 AUD`. The unit did not change. The device class is what makes the frontend use the locale's currency format.
+
+They also lost their state class, which was `total` in 2.3.0 and was wrong there. The reasoning is under [Cost accounting](#cost-accounting). Home Assistant will raise a repair notice saying these two entities are no longer being recorded, because dropping the state class removes them from long term statistics. That is the intended outcome and the notice can be dismissed. Any statistics collected for them since 2.3.0 described the day to day difference between two unrelated daily totals, so nothing of value is lost.
+
+Both sensors now publish the whole of the previous day as an `intervals` attribute. See [Yesterday's intervals](#yesterdays-intervals).
+
+The repair notice about the money sensor unit changing from `$` to `AUD` is resolved by this release on Home Assistant 2026.4.0 or newer. See [the statistics unit notice](#the-statistics-unit-notice) for what it does and why the version floor exists. If the notice was already dismissed by choosing to update or delete the historic values, that choice stands.
+
 ## Upgrading to 2.3.0
 
 The Daily Cost and Daily Earnings sensors changed unit from `$` to `AUD`, gained the monetary device class, and changed state class from measurement to total with a `last_reset` at local midnight. They were not eligible for long term statistics before this and they are now.
 
-Home Assistant tracks the unit of an existing entity, so it may surface the unit change for those two sensors after the upgrade. This was not tested against a live upgrade, only against the entity definitions.
-
 Three entities are new: Daily Net Cost, Yesterday Cost and Yesterday Earnings.
+
+### The statistics unit notice
+
+Home Assistant tracks the unit of every entity that has long term statistics, and stops compiling them when the unit changes, because it cannot know how the old and new units relate. On a live upgrade this surfaced as a repair notice per sensor:
+
+> The unit of 'LocalVolts v2 Daily Earnings' changed to 'AUD' which can't be converted to the previously stored unit, '$'.
+
+Nothing about the numbers changed, only the label, so the integration now tells the recorder the two units are the same thing. `recorder.py` implements `async_custom_equivalent_units`, the documented hook for exactly this migration, and declares `$` equivalent to `AUD` for the integration's own entities. The mapping is built from the entity registry, because entity ids carry the account identifier and differ per installation, and it is restricted to entities that currently sit on `AUD`, so a genuine unit mistake on some other entity still surfaces rather than being waved through.
+
+One Australian dollar is one AUD, so the mapping is an identity and no historic value needs restating. If the notice was already dismissed by choosing to update or delete the old values, that choice stands and this changes nothing further.
+
+This is not something a genuinely new sensor can trigger. A new entity has no stored unit to conflict with, so the notice only appears when an existing entity's unit changes. The way to avoid it is to get the unit right before release: use the Home Assistant constant rather than a custom string, and check that the unit a device class requires is the one being published.
 
 ## Why v1 was dropped
 
