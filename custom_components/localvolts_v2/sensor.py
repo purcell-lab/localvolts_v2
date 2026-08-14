@@ -55,6 +55,10 @@ from .const import (
     DOMAIN,
     FORECAST_FIELD_DIGITS,
     FORECAST_FIELDS,
+    INTERVAL_FIELD_DIGITS,
+    INTERVAL_FIELDS,
+    ATTR_INTERVALS,
+    ATTR_INTERVAL_FIELDS,
     ATTR_SETTLED_INTERVAL_COUNT,
     STATE_NO_DATA,
 )
@@ -90,6 +94,25 @@ def _forecast_entry(record: dict[str, Any]) -> dict[str, Any]:
         value = _number(record, field)
         entry[field] = (
             None if value is None else round(value, FORECAST_FIELD_DIGITS[field])
+        )
+    return entry
+
+
+def _interval_entry(record: dict[str, Any]) -> dict[str, Any]:
+    """Return one interval of a reconciled day as a template friendly row.
+
+    quality travels with the row because firmness varies within a day. A day can
+    be complete and still hold a handful of rows that never left Fcst, and only a
+    per interval quality makes those findable.
+    """
+    entry: dict[str, Any] = {
+        ATTR_INTERVAL_END: record.get(ATTR_INTERVAL_END),
+        ATTR_QUALITY: record.get(ATTR_QUALITY),
+    }
+    for field in INTERVAL_FIELDS:
+        value = _number(record, field)
+        entry[field] = (
+            None if value is None else round(value, INTERVAL_FIELD_DIGITS[field])
         )
     return entry
 
@@ -538,14 +561,35 @@ class LocalVoltsYesterdayReconciliationSensor(LocalVoltsSensorBase):
     them.
     """
 
-    _attr_native_unit_of_measurement = "AUD"
-    _attr_state_class = SensorStateClass.TOTAL
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = CURRENCY_AUD
     _attr_suggested_display_precision = 2
+
+    # No state_class, deliberately. A state class would put this entity into long
+    # term statistics, where TOTAL means the accumulated growth or decline of the
+    # state rather than the state itself. This value replaces itself with an
+    # unrelated figure once a day, so those deltas describe nothing. The daily
+    # sensors already carry the statistics grade accumulation, and duplicating it
+    # here would double count. The absolute value is what matters, which the
+    # developer documentation gives as the reason not to use TOTAL, while also
+    # forbidding MEASUREMENT on a monetary device class.
+    _attr_state_class = None
+
     # quality_breakdown is a dict and would be written to history on every poll.
     # The scalar counts beside it carry the same information in a recordable
-    # shape, so the mapping is live only.
+    # shape, so the mapping is live only. intervals is excluded for the same
+    # reason the forecast is: it is far past the recorder attribute size limit,
+    # and the exclusion is applied before that limit is measured, so nothing has
+    # to be shed to fit.
     _unrecorded_attributes = frozenset(
-        {ATTR_CALCULATION, ATTR_DESCRIPTION, "quality_breakdown", "day"}
+        {
+            ATTR_CALCULATION,
+            ATTR_DESCRIPTION,
+            ATTR_INTERVALS,
+            ATTR_INTERVAL_FIELDS,
+            "quality_breakdown",
+            "day",
+        }
     )
 
     def __init__(
@@ -593,10 +637,17 @@ class LocalVoltsYesterdayReconciliationSensor(LocalVoltsSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Describe the coverage and firmness behind the total."""
+        """Describe the coverage and firmness behind the total, interval by interval.
+
+        Every interval of the day is published, not a sample, so that the total
+        can be checked by adding the rows up. Each row carries its own quality,
+        which is what makes a partial day diagnosable: the state alone cannot
+        distinguish a cheap day from an incomplete one.
+        """
         record = self._reconciliation
         if record is None:
             return {}
+        entries = [_interval_entry(row) for row in record.intervals]
         return {
             "day": record.day.isoformat(),
             "settlement_state": record.state,
@@ -605,6 +656,8 @@ class LocalVoltsYesterdayReconciliationSensor(LocalVoltsSensorBase):
             "intervals_missing": record.intervals_missing,
             "intervals_not_actual": record.intervals_not_actual,
             "quality_breakdown": dict(record.quality_counts),
+            ATTR_INTERVALS: entries,
+            ATTR_INTERVAL_FIELDS: list(INTERVAL_FIELDS),
             ATTR_CALCULATION: (
                 "sum(amountAll) over every interval of the previous local day"
             ),

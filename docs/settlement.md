@@ -69,6 +69,30 @@ to `confirmed`.
 Attributes also carry `intervals_present`, `intervals_expected`, `intervals_missing`,
 `intervals_not_actual` and a `quality_breakdown` count.
 
+### The interval detail
+
+The `intervals` attribute carries every interval of the day, ordered by `intervalEnd`,
+each with its own `quality`. The scalar counts above say how many rows are soft. Only the
+per interval quality says which, and that is the difference between knowing a day is
+partial and being able to point at the intervals responsible.
+
+The total is reproducible from the rows, which is the point. If `sum(amountAll)` over
+`intervals` does not equal the state, something is wrong with the integration rather than
+with the feed.
+
+One trap is worth naming because it is easy to hit when checking this by hand against the
+API. A query for a single day returns 289 rows per direction. The response spans midnight
+to midnight inclusive, and by the interval end convention the row ending at 00:00 belongs
+to the previous day. The day's own 288 rows are those ending after 00:00 and up to and
+including 00:00 the following day. Grouping naively by the local date of `intervalEnd`
+also yields 288 rows, but the wrong 288, shifted by one interval. The clearest tell is
+`amountFixed`: the daily supply charge is 288 equal parts, so a sum built from 289 rows
+overstates the day by about 0.35 percent.
+
+This is the interval count and period alignment class of error, which is worth ruling out
+first when a day's total disagrees with a figure from elsewhere. See
+[reconciling against an invoice](billing.md).
+
 ### Why yesterday is usually partial here
 
 `Exp: 286, Fcst: 2` is a real observed breakdown for 2026-08-09. LocalVolts keeps

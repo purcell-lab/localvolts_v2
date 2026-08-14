@@ -71,6 +71,7 @@ class DayReconciliation:
     intervals_expected: int
     quality_counts: dict[str, int] = field(default_factory=dict)
     state: str = STATE_NO_DATA
+    intervals: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def intervals_missing(self) -> int:
@@ -170,7 +171,15 @@ def reconcile_day(
             intervals_expected=expected,
             quality_counts={},
             state=STATE_NO_DATA,
+            intervals=[],
         )
+
+    # Sorted here rather than at the point of publication so every consumer sees
+    # the day in order. The API does not promise an order and has returned rows
+    # grouped by direction rather than by time.
+    day_records = sorted(
+        day_records, key=lambda record: str(record.get("intervalEnd") or "")
+    )
 
     total = 0.0
     counts: dict[str, int] = {}
@@ -204,5 +213,6 @@ def reconcile_day(
         intervals_present=present,
         intervals_expected=expected,
         quality_counts=counts,
+        intervals=day_records,
         state=state,
     )
