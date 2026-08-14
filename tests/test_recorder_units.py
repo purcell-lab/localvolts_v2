@@ -7,9 +7,14 @@ declaring unrelated units equivalent would hide a genuine unit bug later.
 """
 from __future__ import annotations
 
-from homeassistant.components.recorder.statistics import (
-    CUSTOM_EQUIVALENT_UNITS_SCHEMA,
-)
+import pytest
+
+try:
+    from homeassistant.components.recorder.statistics import (
+        CUSTOM_EQUIVALENT_UNITS_SCHEMA,
+    )
+except ImportError:  # Home Assistant older than 2026.4.0
+    CUSTOM_EQUIVALENT_UNITS_SCHEMA = None
 
 from custom_components.localvolts_v2.const import CURRENCY_AUD, DOMAIN
 from custom_components.localvolts_v2.recorder import (
@@ -111,7 +116,31 @@ def test_the_mapping_satisfies_the_recorder_schema(monkeypatch):
         [_RegistryEntry("sensor.lv_daily_cost", DOMAIN, CURRENCY_AUD)], monkeypatch
     )
 
+    if CUSTOM_EQUIVALENT_UNITS_SCHEMA is None:
+        pytest.skip("recorder gained this hook in Home Assistant 2026.4.0")
+
     assert CUSTOM_EQUIVALENT_UNITS_SCHEMA(units) == units
+
+
+def test_the_mapping_shape_holds_without_the_recorder_schema(monkeypatch):
+    """The shape is asserted directly so old test environments still check it.
+
+    The schema constant only exists from Home Assistant 2026.4.0, and the test
+    environment can be older than that, so the one assertion that matters is not
+    allowed to depend on it. The recorder expects a mapping of entity id to a
+    mapping of old unit to new unit.
+    """
+    units = _units(
+        [_RegistryEntry("sensor.lv_daily_cost", DOMAIN, CURRENCY_AUD)], monkeypatch
+    )
+
+    assert isinstance(units, dict)
+    for entity_id, mapping in units.items():
+        assert isinstance(entity_id, str)
+        assert isinstance(mapping, dict)
+        for old_unit, new_unit in mapping.items():
+            assert old_unit is None or isinstance(old_unit, str)
+            assert isinstance(new_unit, str)
 
 
 def test_an_empty_registry_returns_an_empty_mapping(monkeypatch):

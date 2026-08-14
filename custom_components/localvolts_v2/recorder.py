@@ -14,6 +14,13 @@ The hook is async_custom_equivalent_units, documented under "Changing the unit o
 measurement for a sensor with long-term statistics" in the sensor entity
 developer documentation, and registered by the recorder through
 INTEGRATION_PLATFORM_CUSTOM_EQUIVALENT_UNITS.
+
+That hook first appears in Home Assistant 2026.4.0. Checked against the released
+wheels: 2026.3.4 and earlier have neither the constant nor the schema, 2026.4.0
+has both. On an older version the recorder never looks for this function, so this
+module is simply inert and the repair notice remains until the user upgrades.
+There is no fallback worth writing, because the only other way to reconcile the
+units is to restate the stored statistics directly.
 """
 
 from __future__ import annotations
