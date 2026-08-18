@@ -73,7 +73,27 @@ The three daily entities add the `total` state class with `last_reset` at local 
 
 `amountAll` already includes network, supply and any demand charge. Each money entity exposes the split as `amount_var_today`, `amount_fixed_today` and `amount_demand_today`, and the three reconstruct the total. The fixed component accrues on every interval, so it accumulates on a day with no import at all. There is no separate certificate line in the API, so certificate costs cannot be broken out.
 
-The two Yesterday entities carry no state class at all, which keeps them out of long term statistics. A state class of `total` would record the accumulated growth or decline of the state rather than the state itself, and this value is replaced once a day by an unrelated figure, so those day to day differences describe nothing. `measurement` is not an option either, because Home Assistant does not permit it on a monetary device class. The daily entities already provide the statistics grade accumulation, so nothing is lost.
+The two Yesterday entities carry no state class at all, which keeps them out of long term statistics. A state class of `total` would record the accumulated growth or decline of the state rather than the state itself, and this value is replaced once a day by an unrelated figure, so those day to day differences describe nothing. `measurement` is not an option either, because Home Assistant does not permit it on a monetary device class. The daily entities already provide the statistics grade accumulation, and the settled days are recorded separately as external statistics, described under [Settled daily long term statistics](#settled-daily-long-term-statistics).
+
+### Settled daily long term statistics
+
+The Yesterday entities cannot themselves carry long term statistics, but the numbers behind them can. The integration writes two external statistic series directly into the recorder, one point per settled local day, stamped to the start of that day:
+
+| Statistic | Contents |
+| --- | --- |
+| `localvolts_v2:<entry>_cost` | LocalVolts settled daily import cost |
+| `localvolts_v2:<entry>_earnings` | LocalVolts settled daily export earnings |
+
+`<entry>` is the lowercased config entry id, so the id carries no account identifier. Both series have `has_sum`, so a chart or a statistics card can read back a week, a month or a year of cost.
+
+What gets written and when:
+
+- Only whole elapsed local days. Today is still running and is left to the Daily entities. A day still short of intervals is left out entirely rather than written low, because a chart cannot show that a bar is provisional and a reader would take it at face value.
+- The fetched window covers the last two days, so a day that firms up later is rewritten in place. Re-importing the same start overwrites the point rather than adding a second one.
+- The write is skipped while the totals in the window are unchanged, so a poll every minute does not mean a database write every minute.
+- A recorder failure is logged and the poll continues. Statistics are a side effect of the fetch and never cost the entities their data.
+
+The series are separate from the entities. They appear in Developer tools, Statistics under the names above, and they are not the history of `sensor.localvolts_yesterday_cost`.
 
 These totals are forecast grade, and each one says so in its `caveat` attribute. See [the note on settlement and the dollar fields](docs/p2p-forecast.md) for the measurement behind that.
 
