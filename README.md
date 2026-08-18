@@ -88,7 +88,8 @@ The Yesterday entities cannot themselves carry long term statistics, but the num
 
 What gets written and when:
 
-- Only whole elapsed local days. Today is still running and is left to the Daily entities. A day still short of intervals is left out entirely rather than written low, because a chart cannot show that a bar is provisional and a reader would take it at face value.
+- Only elapsed local days with every interval present. Today is still running and is left to the Daily entities. A day short of intervals is left out entirely rather than written low, because a chart cannot show that a bar is provisional and a reader would take it at face value.
+- Quality is not a condition. A complete day that still holds rows marked `Fcst` is written at face value. Promotion from `Fcst` to `Exp` rewrites only `spotCost`, and across 166 observed promotions `amountAll` did not move, so a `Fcst` row already carries the money. A couple of rows per day never leave `Fcst` at all on this feed, so waiting for a clean quality mix would mean writing almost nothing.
 - The fetched window covers the last two days, so a day that firms up later is rewritten in place. Re-importing the same start overwrites the point rather than adding a second one.
 - The write is skipped while the totals in the window are unchanged, so a poll every minute does not mean a database write every minute.
 - A recorder failure is logged and the poll continues. Statistics are a side effect of the fetch and never cost the entities their data.

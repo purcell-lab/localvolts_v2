@@ -47,8 +47,8 @@ def test_statistic_id_is_valid_and_carries_no_account_identifier() -> None:
     assert "__" not in sid
 
 
-def test_settled_days_excludes_today_and_partial_days() -> None:
-    """Only whole elapsed days may be written."""
+def test_settled_days_excludes_today_and_short_days() -> None:
+    """Only elapsed days with every interval present may be written."""
     today = date(2026, 8, 18)
     records = (
         _day(date(2026, 8, 16))
@@ -57,6 +57,42 @@ def test_settled_days_excludes_today_and_partial_days() -> None:
     )
     days = settled_days(records, "amountAll", BRISBANE, today)
     assert [d.day for d in days] == [date(2026, 8, 16)]
+
+
+def test_a_complete_day_holding_forecast_rows_is_still_written() -> None:
+    """The real feed leaves a couple of rows per day at Fcst forever.
+
+    Excluding on quality rather than on completeness would mean writing almost
+    nothing. This mirrors an observed day: 286 Exp and 2 Fcst.
+    """
+    today = date(2026, 8, 18)
+    day = date(2026, 8, 17)
+    records = _day(day, quality="Exp", count=286) + [
+        dict(row, quality="Fcst")
+        for row in _day(day, quality="Exp")[286:]
+    ]
+    reconciled = reconcile_day(records, day, "amountAll", BRISBANE)
+    assert reconciled.state == "partial"
+    assert reconciled.quality_counts == {"Exp": 286, "Fcst": 2}
+
+    days = settled_days(records, "amountAll", BRISBANE, today)
+    assert [d.day for d in days] == [day]
+    assert round(days[0].total or 0, 4) == 2.88
+
+
+def test_an_entirely_forecast_day_is_written_at_face_value() -> None:
+    """A complete day of Fcst rows already carries the day's money."""
+    today = date(2026, 8, 18)
+    records = _day(date(2026, 8, 16), quality="Fcst")
+    days = settled_days(records, "amountAll", BRISBANE, today)
+    assert [d.day for d in days] == [date(2026, 8, 16)]
+
+
+def test_a_day_missing_one_interval_is_still_excluded() -> None:
+    """Completeness remains the condition, so a gap keeps the day out."""
+    today = date(2026, 8, 18)
+    records = _day(date(2026, 8, 16), count=287)
+    assert settled_days(records, "amountAll", BRISBANE, today) == []
 
 
 def test_settled_days_totals_the_whole_day() -> None:

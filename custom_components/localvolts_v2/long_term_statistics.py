@@ -27,9 +27,22 @@ Two consequences worth knowing.
   is corrected in place rather than double counted, which is the behaviour we
   want given the feed promotes rows between qualities for days after the fact.
 
-Only whole settled days are written. A day still missing intervals is left out
-entirely rather than written low and corrected later, because a chart cannot
-show that a bar is provisional and a reader would take it at face value.
+What decides whether a day is written is whether every interval of it arrived,
+not what quality those intervals carry. A day short of intervals is left out
+entirely rather than written low, because a chart cannot show that a bar is
+provisional and a reader would take it at face value. A day that is complete but
+still holds rows marked Fcst is written at face value, for two reasons that were
+measured on this feed rather than assumed:
+
+* Promotion from Fcst to Exp rewrites only spotCost. Across 166 observed
+  promotions amountAll did not move at all, so a Fcst row already carries the
+  money the settled row will carry.
+* Act has never been observed on this feed, and a handful of rows per day never
+  leave Fcst at all. Waiting for a clean quality mix would mean waiting forever
+  and writing almost nothing.
+
+The day stays inside the fetch window for two more days, so if an amount does
+move the point is rewritten. Once the window passes the value is frozen.
 """
 
 from __future__ import annotations
@@ -41,7 +54,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .const import CURRENCY_AUD, DOMAIN, STATE_NO_DATA, STATE_PARTIAL
+from .const import CURRENCY_AUD, DOMAIN, QUALITY_FORECAST
 from .reconciliation import DayReconciliation, reconcile_day
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,10 +101,13 @@ def settled_days(
     tzinfo: Any,
     today: date,
 ) -> list[DayReconciliation]:
-    """Return every whole day in the fetched window that is complete.
+    """Return every day in the fetched window whose intervals all arrived.
 
-    Today is excluded because it is still running. Days that are short of
-    intervals are excluded because their total is not the day's total.
+    Today is excluded because it is still running. A day short of intervals is
+    excluded because its total is not the day's total. Quality is deliberately
+    not a condition: a complete day made of Fcst rows still carries the day's
+    money, and a day with a couple of rows that never left Fcst is the normal
+    case on this feed rather than an exception.
     """
     days: dict[date, None] = {}
     for record in records:
@@ -115,8 +131,16 @@ def settled_days(
         reconciliation = reconcile_day(records, day, amount_key, tzinfo)
         if reconciliation.total is None:
             continue
-        if reconciliation.state in (STATE_NO_DATA, STATE_PARTIAL):
+        if reconciliation.intervals_missing:
             continue
+        if reconciliation.quality_counts.get(QUALITY_FORECAST):
+            _LOGGER.debug(
+                "Day %s is complete but holds %d row(s) still marked %s, "
+                "writing it at face value",
+                reconciliation.day,
+                reconciliation.quality_counts[QUALITY_FORECAST],
+                QUALITY_FORECAST,
+            )
         settled.append(reconciliation)
     return settled
 
