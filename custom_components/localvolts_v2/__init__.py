@@ -235,6 +235,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -
         client,
         entry.data[CONF_NMI],
         scan_interval=timedelta(seconds=scan_seconds),
+        entry_id=entry.entry_id,
     )
     # Retain the entry so service responses can include the config entry ID.
     coordinator.config_entry = entry
