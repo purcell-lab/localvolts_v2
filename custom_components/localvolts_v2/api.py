@@ -1,4 +1,15 @@
-"""Async client for the reverse-engineered LocalVolts v2 API."""
+"""Async client for the LocalVolts v2 API.
+
+The official reference is the LocalVolts API Guide 0.9.8, committed at
+``docs/api/``. It documents three callable paths: ``/version``,
+``/v2/customer/interval`` and ``/v2/customer/metadata``. This client implements
+the first two. ``/v2/market/stats``, which ``fetch_market_stats`` calls, is not
+in the guide at any version and was found by probing.
+
+Several behaviours this client relies on are field measurements rather than
+documented promises, and are marked as such where they appear.
+``docs/api/endpoint-audit.md`` lists all of them in one place.
+"""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone

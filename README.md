@@ -8,7 +8,7 @@ Six price signals on top, three per direction, because every interval settles in
 
 Setup takes one API key, one partner ID, and your NMI.
 
-> **Important:** The LocalVolts v2 behavior described here is based on the reverse-engineered `API_V2_SPECIFICATION.md` supplied with this integration task, not official LocalVolts documentation. Validate billing-critical conclusions against LocalVolts documentation and invoices.
+> **Important:** Official LocalVolts documentation is now committed at [docs/api/](docs/api/), as [the API Guide 0.9.8 PDF](docs/api/LvAPI_20260715.pdf) with [a markdown transcription](docs/api/lv-api-guide-0.9.8.md) beside it. That guide is the reference for what the API promises. A good deal of the behavior this integration relies on is not in it, and comes instead from field measurement against a single site. Anything below that is measured rather than documented is labelled as such. [docs/api/endpoint-audit.md](docs/api/endpoint-audit.md) sets out exactly which documented endpoints and fields this integration surfaces, which it does not, and where measured behavior and the guide diverge. Validate billing-critical conclusions against your own invoices.
 
 ## Installation
 
@@ -209,20 +209,44 @@ response_variable: localvolts_window
 
 The response contains a `windows` list. Each result includes NMI, start/end timestamps, interval count, average `rateAllVar`, unit, and direction.
 
+## Documented API surface
+
+The official guide documents three callable paths in total, plus one legacy path in an appendix.
+
+| Path | Surfaced by this integration |
+|---|---|
+| `GET /version` | Yes, unauthenticated, as the config flow connectivity check |
+| `GET /v2/customer/interval` | Yes, once per coordinator refresh. This is the integration's only data source |
+| `GET /v2/customer/metadata` | No. Would supply NEM region, network tariff code, meter read type and the per circuit map |
+| `GET /v1/customer/interval` | No, by decision. See [why v1 was dropped](#why-v1-was-dropped) |
+
+The integration also calls `GET /v2/market/stats`, which the guide does not document at any
+version. It was found by probing and it works, but it is unsupported. One sensor, Market
+Participants, depends on it.
+
+For field level coverage, which of the guide's 38 interval fields are read, and where measured
+behavior and the guide diverge, see [docs/api/endpoint-audit.md](docs/api/endpoint-audit.md).
+
 ## API behavior and limitations
 
-The following items come from the supplied reverse-engineered `API_V2_SPECIFICATION.md`:
+Documented in the official guide:
 
-- Use `https://api2.localvolts.com` for v2. The v1 host is `https://api.localvolts.com`.
-- Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers.
-- v2 may return `HTTP 200` with an array error body such as `Not Authenticated` or `Not Authorised`. The integration inspects successful bodies for these errors.
-- v2 history is limited to three days back and forecast to one day ahead. Both limits were confirmed live on 2026-08-30 by the rejection messages `Historical data limited to 3 days in the past` and `Future data limited to 1 day(s) ahead`. The forecast really is a rolling 24 hours, not the remainder of the local day; the earlier note here said otherwise and was wrong. The coordinator requests local midnight two days ago, clamped to 71 hours, through 24 hours from the current interval, as ISO 8601 UTC timestamps.
-- The limits apply to `from` and `to` independently rather than to the span between them, so the whole 95 hour window is one request. A single call returning 1140 intervals across 94.92 hours was measured on 2026-08-30.
+- v2 is versioned `v2` in the path. The guide calls `api.localvolts.com` the production host and `api2.localvolts.com` the staging host, then states that the URL for the latest version is `api2.localvolts.com`. The v2 calls this integration makes are served from `api2`.
+- Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers, and the word `apikey` is part of the header value.
+- Interval data can be requested up to 72 hours into the past and no more than 24 hours into the future, with a stated limit of 24 hours of data at a time for historical calls. Both limits were confirmed live on 2026-08-30 by the rejection messages `Historical data limited to 3 days in the past` and `Future data limited to 1 day(s) ahead`. The forecast really is a rolling 24 hours, not the remainder of the local day. The coordinator requests local midnight two days ago, clamped to 71 hours, through 24 hours from the current interval, as ISO 8601 UTC timestamps.
+- The limits apply to `from` and `to` independently rather than to the span between them, so the whole 95 hour window is one request. A single call returning 1140 intervals across 94.92 hours was measured on 2026-08-30, which is wider than the stated 24 hours of data at a time and is accepted anyway.
+- `from` and `to` take ISO 8601 UTC timestamps. `to` also accepts the keywords `current`, `nDay(s)` and `nInterval(s)`. The guide's `to=1day` keyword resolves relative to `from`, not to the current interval. Sent alongside a historical `from` it returns only history and no forecast at all, so it is not usable for a rolling horizon.
+- A settlement price is published by AEMO around 20 seconds after an interval begins.
+- `quality` has five values in v2: `Act`, `Sub`, `FSub`, `Exp` and `Fcst`. `Sub` and `FSub` are substituted and finally substituted meter data.
+
+Measured against a single site, not documented anywhere:
+
+- v2 returns `HTTP 200` with an array error body such as `Not Authenticated` or `Not Authorised` rather than a 401. The guide describes authentication failures as HTTP 500 with a message. The integration inspects successful bodies for these errors.
+- A bare calendar date in `from` or `to` is accepted and interpreted at site local midnight. The guide specifies a UTC timestamp and says nothing about bare dates. The coordinator no longer sends them.
 - Multi circuit sites are untested. The guide splits interval data per circuit, and the integration keys on `direction` only. The one account tested has exactly two circuits, `Import` on register 12 and `Export` on register 72, which map one to one onto `Buy` and `Sell`. If a site returned two `Buy` rows for one interval, for example a controlled load, the daily and yesterday totals would add them, the yesterday interval count would exceed 288, and the Current Buy Rate would be whichever row the API listed first. `tests/test_multi_circuit_rows.py` pins this down. Which behaviour is wanted has not been decided.
-- The guide's `to=1day` keyword resolves relative to `from`, not to the current interval. Sent alongside a historical `from` it returns only history and no forecast at all, so it is not usable for a rolling horizon.
-- `spotCost` is exact on elapsed rows, following `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, which reproduces 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01% and fits with an R squared of 1.000000. The supplied specification described it as unreliable and inflated by about 1050 times; the observed loss factor times 1000 is 1050.07, so that reads as a $/MWh against $/kWh unit error rather than a faulty field. The trap that does catch people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate by 19.38% on export here. See [docs/settlement.md](docs/settlement.md).
+- `spotCost` is exact on elapsed rows, following `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, which reproduces 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01% and fits with an R squared of 1.000000. The observed loss factor times 1000 is 1050.07, so an apparent inflation of about 1050 times reads as a `$/MWh` against `$/kWh` unit error rather than a faulty field. The trap that catches people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate. An earlier revision of this README put that error at 19.38% on export. That figure did not reproduce on re-derivation and has been withdrawn rather than replaced, because the interval to AEMO price alignment it rested on was itself unsound. See [docs/settlement.md](docs/settlement.md).
 - `rateAllVar` is the proportion weighted blend of the peer matched rate and the spot rate, plus a constant variable network and retail layer on import. Measured on forecast rows only. See the [peer to peer forecast notes](docs/p2p-forecast.md) for the arithmetic and the residuals.
-- `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification. The first identity was also checked here against three days of live data, and held on every interval in both directions to within 2e-08 dollars, which is float noise rather than disagreement.
+- `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` both hold. The guide states the components but not the identities. The first was checked against three days of live data and held on every interval in both directions to within 2e-08 dollars, which is float noise rather than disagreement.
 - `amountFixed` carries the fixed daily supply charge, spread evenly across the day. It is one constant value on every import interval, sums to the daily charge over a local day, and is zero on every export interval. `amountDemand` is zero on a site with no demand tariff. So `amountAll` already includes network and fixed charges, and a total built from it is a bill estimate rather than an energy-only figure.
 
 Settlement rewrites `spotCost` and nothing else. Across 48 intervals observed moving from `Fcst` to `Exp` on 2026-08-10, `amountAll`, `amountVar`, `amountFixed`, `amountDemand`, `volume`, `proportionP2P`, `matchedCost` and `rateAllVar` were all unchanged. The dollar fields are written once when the forecast is built and are never revised, so any cost total is forecast grade even after the interval has elapsed.
