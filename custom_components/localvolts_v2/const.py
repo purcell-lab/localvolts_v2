@@ -19,6 +19,21 @@ API_INTERVAL_PATH = "/v2/customer/interval"
 API_MARKET_STATS_PATH = "/v2/market/stats"
 API_VERSION_PATH = "/version"
 
+# Both bounds are enforced by the service, measured 2026-08-30. Asking for more
+# history than API_MAX_HISTORY is answered with "Historical data limited to 3
+# days in the past", and more forward than API_MAX_HORIZON with "Future data
+# limited to 1 day(s) ahead". Both arrive as HTTP 200 carrying an error body.
+#
+# The limits apply independently to from and to, not to the span between them.
+# A single call from 71 hours back to 24 hours forward returned 1140 intervals
+# across 95 hours, so the whole window still costs one request.
+#
+# API_MAX_HISTORY is held one hour inside the documented 72 so that a poll near
+# local midnight, when the window start is furthest away, cannot land on the
+# boundary and be refused.
+API_MAX_HISTORY = timedelta(hours=71)
+API_MAX_HORIZON = timedelta(hours=24)
+
 DEVICE_MANUFACTURER = "LocalVolts"
 
 # The device name no longer carries the NMI. It appears in every entity_id
