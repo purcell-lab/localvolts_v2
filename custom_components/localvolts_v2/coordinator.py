@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 import logging
 from typing import Any
 
@@ -13,6 +13,8 @@ from homeassistant.util import dt as dt_util
 from .api import LocalVoltsClient, parse_interval_end
 from .reconciliation import DayReconciliation, reconcile_day
 from .const import (
+    API_MAX_HISTORY,
+    API_MAX_HORIZON,
     DEFAULT_SCAN_INTERVAL,
     DIRECTION_BUY,
     DIRECTION_SELL,
@@ -121,16 +123,39 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         self.client = client
         self.nmi = nmi
 
+    def _request_window(self, now: datetime, local_now: datetime) -> tuple[datetime, datetime]:
+        """Return the interval window to request, as UTC timestamps.
+
+        The forward edge is the whole horizon the API will serve, measured from
+        now. It used to be tomorrow's local midnight, which made the forecast
+        horizon the remainder of the current local day: close to 24 hours just
+        after local midnight and close to nothing just before it. Measured live
+        at 07:30 local, that window returned a last forecast 16.49 hours out
+        where this one returns 24.
+
+        The obvious looking alternative, the guide's ``to=1day`` keyword, is not
+        used because it resolves relative to ``from`` rather than to now. Sending
+        it alongside a historical ``from`` returns only history and no forecast
+        at all, which is worse than the behaviour being fixed here.
+
+        The back edge still reaches the local midnight two days ago, so the
+        daily and yesterday reconciliations see whole local days, but it is
+        clamped to what the service will serve.
+        """
+        window_start_local = datetime.combine(
+            local_now.date() - timedelta(days=2), time.min, tzinfo=local_now.tzinfo
+        )
+        from_dt = max(window_start_local.astimezone(timezone.utc), now - API_MAX_HISTORY)
+        return from_dt, now + API_MAX_HORIZON
+
     async def _async_update_data(self) -> LocalVoltsData:
         """Fetch data, retaining the last known data if the primary v2 poll fails."""
-        local_today: date = dt_util.now().date()
-        # The reverse-engineered v2 specification says from is site-local and
-        # data older than about 72 hours is rejected. Two calendar days is safe.
-        from_date = local_today - timedelta(days=2)
-        to_date = local_today + timedelta(days=1)
+        now = datetime.now(timezone.utc)
+        local_now = dt_util.now()
+        from_dt, to_dt = self._request_window(now, local_now)
 
         try:
-            records = await self.client.fetch_interval(self.nmi, from_date, to_date)
+            records = await self.client.fetch_interval(self.nmi, from_dt, to_dt)
         except Exception as exc:  # noqa: BLE001
             if self.data is not None:
                 _LOGGER.warning(
@@ -146,12 +171,9 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             [record for record in records if record.get("direction") == DIRECTION_SELL]
         )
 
-        now = datetime.now(timezone.utc)
-
         # Yesterday is already inside the polling window, so reconciling it costs
         # no extra request. There is nothing to gain from a separate next morning
         # fetch when every poll of the day already carries the whole of it.
-        local_now = dt_util.now()
         yesterday_day = local_now.date() - timedelta(days=1)
         yesterday = {
             "cost": reconcile_day(

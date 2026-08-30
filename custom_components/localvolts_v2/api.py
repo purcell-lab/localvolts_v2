@@ -178,18 +178,33 @@ class LocalVoltsClient:
                 )
             return payload
 
+    @staticmethod
+    def _format_bound(value: date | datetime) -> str:
+        """Render a window bound in the form the API Guide asks for.
+
+        Section 3.2 specifies an ISO 8601 UTC timestamp such as
+        ``2023-05-15T02:40:00Z``. A datetime is converted to UTC and rendered
+        that way. A bare date is passed through as an ISO date, which the API
+        also accepts and resolves at site local midnight; that is the older
+        behaviour and is kept so a caller asking for whole days still gets them.
+        """
+        if isinstance(value, datetime):
+            moment = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.isoformat()
+
     async def fetch_interval(
         self,
         nmi: str,
-        from_date: date | None = None,
-        to_date: date | None = None,
+        from_date: date | datetime | None = None,
+        to_date: date | datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch interval records for an NMI and validate their UTC timestamps."""
         params = {"NMI": nmi}
         if from_date is not None:
-            params["from"] = from_date.isoformat()
+            params["from"] = self._format_bound(from_date)
         if to_date is not None:
-            params["to"] = to_date.isoformat()
+            params["to"] = self._format_bound(to_date)
 
         payload = await self._async_get_json(API_INTERVAL_PATH, params=params)
         if not isinstance(payload, list):

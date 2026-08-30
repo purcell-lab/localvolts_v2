@@ -144,7 +144,9 @@ The upper panel carries the six price signals. Buy is warm and sell is cool, so 
 
 The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
 
-Both panels span the whole local day, so what has already happened sits beside what is still to come, divided by a marker at the current interval. Elapsed intervals are drawn solid and forward ones faded. Opacity carries this rather than line style, because line style is already spoken for encoding which prices blend into which.
+The chart spans the current local day so far plus the whole forward horizon, so its width grows through the day and reaches roughly 47 hours just before local midnight. It used to stop at the next local midnight, which kept the axis narrower but only because the forecast itself was being truncated.
+
+Both panels share one axis, so what has already happened sits beside what is still to come, divided by a marker at the current interval. Elapsed intervals are drawn solid and forward ones faded. Opacity carries this rather than line style, because line style is already spoken for encoding which prices blend into which.
 
 The faded part is labelled forward, and the solid part is deliberately not labelled settled. Promotion from `Fcst` to `Exp` rewrites only `spotCost` and leaves the plotted rates and volumes exactly as forecast, so an elapsed interval on this chart is an elapsed forecast, not a measurement. See [docs/settlement.md](docs/settlement.md).
 
