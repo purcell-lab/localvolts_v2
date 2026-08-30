@@ -5,8 +5,10 @@ Reference audited against: LocalVolts API Guide version 0.9.8, 15 July 2026, com
 [LvAPI_20260715.pdf](LvAPI_20260715.pdf) and transcribed at
 [lv-api-guide-0.9.8.md](lv-api-guide-0.9.8.md).
 
-This is a paper audit. Every row below was determined by reading the guide and the source, not
-by calling the API. Nothing here has been confirmed against a live response.
+Sections up to "Corrections this reference forces" are a paper audit: each row was determined by
+reading the guide against the source, not by calling the API. "Live verification" at the end of
+this document records a subsequent run against the production API and supersedes the paper
+findings wherever the two disagree. Two paper findings did not survive; they are marked below.
 
 ## Endpoint coverage
 
@@ -144,3 +146,111 @@ screenshots by default.
   both cite has never been committed to this repository, so both citations point at a file no
   reader can open. It also carries a real NMI and partner ID and should not be committed as it
   stands.
+
+## Live verification
+
+Run against the production API on 2026-08-30T21:30Z, which is 2026-08-31 07:30 NEM time, roughly
+31 percent of the way through the local day. All calls used `NMI=*` so no meter identifier had to
+be supplied. Reported API version was `v2.1.0`. Two windows were pulled for the field checks: 71
+hours of history and 24 hours forward, 2282 interval rows in total.
+
+### Endpoints
+
+| Call | Result |
+| --- | --- |
+| `GET /version` | HTTP 200. Returns `{"name": "Localvolts API", "version": "v2.1.0"}`. |
+| `GET /v2/customer/interval` | HTTP 200. Works in every documented and undocumented argument form tested. |
+| `GET /v2/customer/metadata` | HTTP 200. Returns one row per circuit with all 11 documented fields present. |
+| `GET /v2/market/stats` | HTTP 200. Responds, but every numeric field was zero, `currentPeriod` was empty and `nodes` was an empty array. |
+| `GET /v2/market/interval` | HTTP 404. Confirms removal at guide version 0.9.0. |
+| `GET /v2/customer/trades` | HTTP 404. Never documented, does not exist. |
+
+`/version` behaves differently from the guide in two ways. Section 1.2 describes the response as
+`{ version: <number> }`; the live response is a string with a `name` field alongside it. And the
+same body is returned by both the v1 and the v2 host, so `/version` does not identify which API
+version a host serves.
+
+### Argument forms
+
+| Request | Result |
+| --- | --- |
+| no `from` or `to` | 1 interval, the current one. Matches the documented default. |
+| `from=current&to=current` | 1 interval. |
+| `from=current&to=1day` | 289 intervals, 288 of them `Fcst`, last one 24.07 h ahead. |
+| `from=current&to=2days` | Rejected: `Future data limited to 1 day(s) ahead`. |
+| `from=current&to=1interval` | 2 intervals. |
+| `from=current&to=12intervals` | 13 intervals. |
+| `from=current&to=288intervals` | 289 intervals, identical to `to=1day`. |
+| `to=0days` | Accepted silently, returns the current interval only. |
+| bare dates, `today-2` to `today+1` (what the integration sends) | 865 intervals, last forecast 16.49 h ahead. |
+| ISO 8601 UTC, 71 h of history in one call | 852 intervals. Accepted. |
+| ISO 8601 UTC, 96 h of history | Rejected: `Historical data limited to 3 days in the past`. |
+| ISO 8601 UTC, 48 h forward | Rejected: `Future data limited to 1 day(s) ahead`. |
+| `from=banana` | HTTP 400, `Invalid 'from' date format. Expected ISO 8601 format or 'current'`. |
+| no `NMI` | HTTP 400, `The 'NMI' query parameter is required.` |
+
+The enforced limits are 3 days back and 1 day forward. Nothing enforced a 24 hour cap on the
+amount of data returned by a single call.
+
+### Error shapes
+
+The guide states in section 1.3 that an authentication failure returns HTTP 500 with a message.
+Neither error shape observed live is an HTTP 500:
+
+- Domain errors, such as asking for a window outside the retention limits, return **HTTP 200**
+  with a single element list: `[{"error": ..., "message": ...}]`. This is the same shape this
+  integration already measured for `Not Authenticated`.
+- Malformed or missing query parameters return a real **HTTP 400** with a bare object, not a list.
+
+`api.py` inspects both shapes before checking the HTTP status, so both surface as errors rather
+than as empty data.
+
+### Field presence
+
+37 of the 38 documented interval fields were returned. The one exception is **`zeroEEUnits`**,
+which the guide documents but the API never returns, so the unit for `zeroEE` cannot be resolved
+from the API at all.
+
+`zeroEE` itself was non-zero on all 2282 rows and ranged from 0.023339 to 1.0, consistent with a
+proportion rather than a unit bearing quantity.
+
+The three demand quantities were zero on every one of the 2282 rows, and both `demandUnits` and
+`flexDemandUnits` were empty strings. `maxDemand`, `flexDemandUp` and `flexDemandDown` carry no
+information for a site on this tariff arrangement.
+
+Every unit string was constant across the whole 95 hour span: `minutes`, `kWh`, `$`, `c/kWh` and
+`g-CO2e`. No scaled response was observed, so treating the units as fixed is currently correct in
+practice, though still unguarded.
+
+`intervalDuration` was `5` on every row, returned as a string.
+
+### Findings that did not survive
+
+**`circuit` and `register` are not a multi circuit signal on the site tested.** The live values
+were `Export`/`72` and `Import`/`12`, mapping one to one onto `direction` values `Sell` and `Buy`.
+Keying off `direction` loses nothing here. Whether a site with more than two circuits breaks the
+current model is untested and cannot be tested from this account.
+
+**Neither of the two request argument divergences is a violation.** Bare calendar dates are a
+valid ISO 8601 date form and the API's own error text asks for "ISO 8601 format or 'current'", so
+sending `2026-08-31` is within spec. And the guide's statement of "a limit of 24 hours of data at
+a time for historical calls" is not enforced: a single call covering 71 hours returned 852
+intervals. That statement in the guide appears to be wrong, or to describe a limit that has since
+been relaxed.
+
+### The finding that matters
+
+The forecast horizon shortfall is real and was measured. At 07:30 NEM the integration's request
+window returned a last forecast interval 16.49 hours ahead. The documented `from=current&to=1day`
+form, issued seconds later, returned one 24.07 hours ahead. The gap is not a data availability
+problem: the forward data existed and was returned when asked for correctly.
+
+Because the integration asks for `to = local_today + 1 day`, the horizon is the remainder of the
+current local day. It is near 24 hours just after local midnight and near zero just before it.
+The measured 16.49 hours is what that looks like at 31 percent through the day.
+
+### `quality`
+
+Only `Exp` and `Fcst` were observed, over 95 hours. `Act`, `Sub` and `FSub` did not appear. The
+risk that `Sub` and `FSub` rows would be dropped from daily totals remains latent rather than
+demonstrated.

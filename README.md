@@ -107,7 +107,7 @@ Each Yesterday entity publishes the whole of the previous local day as an `inter
 
 The list is complete rather than sampled, so the entity's own total can be checked by adding `amountAll` across the rows. `quality` travels on each row because firmness varies inside a day: a day can be complete and still hold a handful of intervals that never advanced past `Fcst`, and only a per interval quality makes those findable.
 
-`spotCost` is deliberately absent. The API inflates it by roughly 1050 on `Exp` and `Act` rows, so publishing it per interval would invite wrong arithmetic. See [docs/billing.md](docs/billing.md).
+`spotCost` is deliberately absent, because publishing it per interval invites wrong arithmetic. Its denominator is the trap, not its scale: it covers only the unmatched share of an interval, so dividing it by full `volume` understates the rate. An earlier revision of this line said the API inflates it by roughly 1050 on `Exp` and `Act` rows. That is wrong and contradicted the fuller explanation further down this file. Across 852 Buy and 653 Sell elapsed intervals pulled live on 2026-08-30, `spotCost / volume` sat at a median of 9.66 and 7.24 c/kWh, which is ordinary NEM spot. The same values divided by 1050 would be 0.009 c/kWh, which is not. `spotCost` is in dollars and is not inflated. See [docs/billing.md](docs/billing.md).
 
 A single day query returns 289 rows per direction, not 288, because the response spans midnight to midnight inclusive. By the interval end convention the row ending at 00:00 belongs to the day before, so the day's own 288 rows are the ones ending after 00:00 and up to and including 00:00 the next day. Summing the raw response overstates the day by one interval, which is visible as a supply charge of 289 units instead of 288. The `intervals` attribute is already resolved to the correct 288.
 
@@ -221,11 +221,17 @@ The official guide documents three callable paths in total, plus one legacy path
 | `GET /v1/customer/interval` | No, by decision. See [why v1 was dropped](#why-v1-was-dropped) |
 
 The integration also calls `GET /v2/market/stats`, which the guide does not document at any
-version. It was found by probing and it works, but it is unsupported. One sensor, Market
+version. It was found by probing and it responds, but it is unsupported, and on a live check on
+2026-08-30 every numeric field in it was zero with an empty node list. One sensor, Market
 Participants, depends on it.
 
-For field level coverage, which of the guide's 38 interval fields are read, and where measured
-behavior and the guide diverge, see [docs/api/endpoint-audit.md](docs/api/endpoint-audit.md).
+Every row of that table was confirmed against the production API on 2026-08-30. `/v2/market/interval`,
+which the guide removed at version 0.9.0, returns HTTP 404. `/v2/customer/metadata` returns one row
+per circuit with all 11 documented fields populated, so the gap is coverage rather than availability.
+
+For field level coverage, which of the guide's 38 interval fields are read, where measured
+behavior and the guide diverge, and the full live verification run, see
+[docs/api/endpoint-audit.md](docs/api/endpoint-audit.md).
 
 ## API behavior and limitations
 
@@ -235,7 +241,8 @@ Documented in the official guide:
 - Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers, and the word `apikey` is part of the header value.
 - Interval data can be requested up to 72 hours into the past and no more than 24 hours into the future, with a stated limit of 24 hours of data at a time for historical calls. Both limits were confirmed live on 2026-08-30 by the rejection messages `Historical data limited to 3 days in the past` and `Future data limited to 1 day(s) ahead`. The forecast really is a rolling 24 hours, not the remainder of the local day. The coordinator requests local midnight two days ago, clamped to 71 hours, through 24 hours from the current interval, as ISO 8601 UTC timestamps.
 - The limits apply to `from` and `to` independently rather than to the span between them, so the whole 95 hour window is one request. A single call returning 1140 intervals across 94.92 hours was measured on 2026-08-30, which is wider than the stated 24 hours of data at a time and is accepted anyway.
-- `from` and `to` take ISO 8601 UTC timestamps. `to` also accepts the keywords `current`, `nDay(s)` and `nInterval(s)`. The guide's `to=1day` keyword resolves relative to `from`, not to the current interval. Sent alongside a historical `from` it returns only history and no forecast at all, so it is not usable for a rolling horizon.
+- `from` and `to` take ISO 8601 UTC timestamps. `to` also accepts the keywords `current`, `nDay(s)` and `nInterval(s)`. The guide's `to=1day` keyword resolves relative to `from`, not to the current interval. Sent alongside a historical `from` it returns only history and no forecast at all, so it is not usable for a rolling horizon. Live, `to=1day` and `to=288intervals` return the same 289 intervals, while `to=2days` is rejected, so the plural in `nDay(s)` never resolves above 1.
+- The guide states that an authentication failure returns HTTP 500 with a message. No HTTP 500 was observed live. Retention and horizon errors return HTTP 200 with a single element list of the form `[{"error": ..., "message": ...}]`, which is the same shape already measured for `Not Authenticated`, and malformed query parameters return a real HTTP 400 with a bare object. `api.py` checks both shapes before it checks the status code.
 - A settlement price is published by AEMO around 20 seconds after an interval begins.
 - `quality` has five values in v2: `Act`, `Sub`, `FSub`, `Exp` and `Fcst`. `Sub` and `FSub` are substituted and finally substituted meter data.
 
