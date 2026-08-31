@@ -231,6 +231,18 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.6.0
+
+Settled daily import cost and export earnings are now written into long term statistics, so a statistics card or an energy chart can read back a week, a month or a year instead of only what the recorder kept for the entities. Two external series are created, `localvolts_v2:<entry>_cost` and `localvolts_v2:<entry>_earnings`, one point per settled local day stamped to the start of that day. `<entry>` is the lowercased config entry id, so the statistic id carries no account identifier. Details, including why a complete day holding `Fcst` rows is written at face value, are under [Settled daily long term statistics](#settled-daily-long-term-statistics).
+
+Backfill only reaches as far as the API allows, which is three days of history. Days before that were never fetched and cannot be recovered.
+
+This release also hardens the identifier guard. It excludes itself from its own repository scan so it can hold values the detector is meant to reject, and that exclusion left the file uncovered. Its pinning examples are synthetic now, and a new test covers the one file the scan skips.
+
+No entities are added, removed or renamed. A restart is required, because the statistics importer is wired up during setup.
+
+Minor rather than patch because a new data series appears.
+
 ## Upgrading to 2.5.0
 
 The forecast horizon no longer shrinks as the day runs out. The coordinator asked the API for data up to the next local midnight, so the forward horizon was whatever was left of the local day: close to 24 hours just after midnight and close to nothing just before it. It now asks for 24 hours from the current interval. Measured against the live API at 08:49 local on 2026-08-31, two calls seconds apart:

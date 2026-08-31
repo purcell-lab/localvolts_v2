@@ -26,6 +26,14 @@ PLACEHOLDER_WITH_CHECKSUM = "12345678908"
 
 ALLOWED = {PLACEHOLDER_NMI, PLACEHOLDER_WITH_CHECKSUM}
 
+# Values used only to prove the detector fires. They must sit outside ALLOWED,
+# so they cannot be the placeholder, and they must not be anybody's meter, so
+# they take the same unallocated leading digit 1 the placeholder relies on.
+PIN_NMI = "1000000001"
+PIN_WITH_CHECKSUM = "10000000012"
+
+PINS = {PIN_NMI, PIN_WITH_CHECKSUM}
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SEARCHED = ("*.py", "*.md", "*.json", "*.yaml", "*.yml")
@@ -38,10 +46,12 @@ SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "node_modules"}
 NMI_SHAPED = re.compile(r"(?<![\d.])(\d{10,11})(?![\d.])")
 
 
-# This file is excluded from its own scan. It has to contain real-looking NMIs
-# to pin the detector, and those examples are not identifiers of anything: the
-# digits below were the value being removed, so they exist here precisely so
-# they cannot exist anywhere else.
+# This file is excluded from the repository-wide scan below, because it has to
+# hold values the detector rejects in order to prove the detector works. That
+# exclusion was previously used to justify keeping the real NMI here, which
+# defeated the whole point: the one file the guard could not see was the file
+# holding the thing it was meant to find. The pins are synthetic now, and
+# test_this_file_holds_only_its_own_pins covers the file that the scan skips.
 SELF = Path(__file__).resolve()
 
 
@@ -83,8 +93,21 @@ def test_the_guard_actually_catches_a_real_looking_nmi():
     The scan above passes trivially on a clean tree, so on its own it proves
     nothing about whether the pattern works. This pins the detector itself.
     """
-    assert _offenders('CONF_NMI: "4001247247"') == {"4001247247"}
-    assert _offenders('nmi = "40012345678"') == {"40012345678"}
+    assert _offenders(f'CONF_NMI: "{PIN_NMI}"') == {PIN_NMI}
+    assert _offenders(f'nmi = "{PIN_WITH_CHECKSUM}"') == {PIN_WITH_CHECKSUM}
+
+
+def test_this_file_holds_only_its_own_pins():
+    """Cover the one file the repository scan deliberately skips.
+
+    Without this, pasting a working NMI into this file is invisible to the
+    guard, which is exactly how a real one survived here for eleven releases.
+    """
+    offenders = _offenders(SELF.read_text(encoding="utf-8"))
+    assert offenders <= PINS, (
+        "This file may only contain its own pin values. "
+        f"Unexpected NMI-shaped values: {sorted(offenders - PINS)}"
+    )
 
 
 @pytest.mark.parametrize(
