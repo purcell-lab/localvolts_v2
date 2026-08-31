@@ -165,7 +165,9 @@ The upper panel carries the six price signals. Buy is warm and sell is cool, so 
 
 The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
 
-Both panels span the whole local day, so what has already happened sits beside what is still to come, divided by a marker at the current interval. Elapsed intervals are drawn solid and forward ones faded. Opacity carries this rather than line style, because line style is already spoken for encoding which prices blend into which.
+The chart spans the current local day so far plus the whole forward horizon, so its width grows through the day and reaches roughly 47 hours just before local midnight. It used to stop at the next local midnight, which kept the axis narrower but only because the forecast itself was being truncated.
+
+Both panels share one axis, so what has already happened sits beside what is still to come, divided by a marker at the current interval. Elapsed intervals are drawn solid and forward ones faded. Opacity carries this rather than line style, because line style is already spoken for encoding which prices blend into which.
 
 The faded part is labelled forward, and the solid part is deliberately not labelled settled. Promotion from `Fcst` to `Exp` rewrites only `spotCost` and leaves the plotted rates and volumes exactly as forecast, so an elapsed interval on this chart is an elapsed forecast, not a measurement. See [docs/settlement.md](docs/settlement.md).
 
@@ -209,7 +211,9 @@ The following items come from the supplied reverse-engineered `API_V2_SPECIFICAT
 - Use `https://api2.localvolts.com` for v2. The v1 host is `https://api.localvolts.com`.
 - Authenticated requests require both `Authorization: apikey <KEY>` and `partner: <PARTNER_ID>` headers.
 - v2 may return `HTTP 200` with an array error body such as `Not Authenticated` or `Not Authorised`. The integration inspects successful bodies for these errors.
-- v2 historical data is limited to approximately three days and forecast data is limited to approximately one day ahead, usually through the end of the current local day. The coordinator requests from two local calendar days ago through tomorrow.
+- v2 history is limited to three days back and forecast to one day ahead. Both limits were confirmed live on 2026-08-30 by the rejection messages `Historical data limited to 3 days in the past` and `Future data limited to 1 day(s) ahead`. The forecast really is a rolling 24 hours, not the remainder of the local day; the earlier note here said otherwise and was wrong. The coordinator requests local midnight two days ago, clamped to 71 hours, through 24 hours from the current interval, as ISO 8601 UTC timestamps.
+- The limits apply to `from` and `to` independently rather than to the span between them, so the whole 95 hour window is one request. A single call returning 1140 intervals across 94.92 hours was measured on 2026-08-30.
+- The guide's `to=1day` keyword resolves relative to `from`, not to the current interval. Sent alongside a historical `from` it returns only history and no forecast at all, so it is not usable for a rolling horizon.
 - `spotCost` is exact on elapsed rows, following `RRP * 1.0500680 * gst * (1 - proportionP2P) * volume`, which reproduces 99.5% of 567 Buy and 98.9% of 567 Sell intervals to within 0.01% and fits with an R squared of 1.000000. The supplied specification described it as unreliable and inflated by about 1050 times; the observed loss factor times 1000 is 1050.07, so that reads as a $/MWh against $/kWh unit error rather than a faulty field. The trap that does catch people is the denominator: `spotCost` covers only the unmatched share of the interval, so dividing it by full `volume` understates the rate by 19.38% on export here. See [docs/settlement.md](docs/settlement.md).
 - `rateAllVar` is the proportion weighted blend of the peer matched rate and the spot rate, plus a constant variable network and retail layer on import. Measured on forecast rows only. See the [peer to peer forecast notes](docs/p2p-forecast.md) for the arithmetic and the residuals.
 - `amountAll = amountVar + amountFixed + amountDemand` and `rateAllVar = amountVar / volume * 100` were verified in the supplied specification. The first identity was also checked here against three days of live data, and held on every interval in both directions to within 2e-08 dollars, which is float noise rather than disagreement.
@@ -226,6 +230,23 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 `Act` quality was never observed once in roughly 3,500 records across five days, and history is capped at three days, so settlement happens out of reach of this endpoint. Worse, promotion from `Fcst` to `Exp` was measured to rewrite only `spotCost`, leaving `amountAll`, `volume` and `proportionP2P` exactly as forecast. A full day of `Exp` is a promoted forecast, not a measurement.
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
+
+## Upgrading to 2.5.0
+
+The forecast horizon no longer shrinks as the day runs out. The coordinator asked the API for data up to the next local midnight, so the forward horizon was whatever was left of the local day: close to 24 hours just after midnight and close to nothing just before it. It now asks for 24 hours from the current interval. Measured against the live API at 08:49 local on 2026-08-31, two calls seconds apart:
+
+| request | forecast intervals | furthest forecast |
+| --- | --- | --- |
+| up to next local midnight, 2.4.0 | 182 | 15.17 h ahead |
+| 24 hours from now, 2.5.0 | 287 | 23.92 h ahead |
+
+Still one API request per poll.
+
+Two things you will notice. The forecast chart's x axis is wider, spanning the local day so far plus the whole forward horizon, so it grows through the day and reaches roughly 47 hours just before local midnight. And the HAEO facing forecast attributes carry more intervals, around 100 more mid morning, which gives an optimiser a longer horizon to plan against.
+
+No entities are added, removed or renamed, and no statistics are affected. A restart or a reload of the config entry is enough.
+
+Minor rather than patch because the chart and the published forecast horizon both visibly change, even though the code change is a bug fix.
 
 ## Upgrading to 2.4.0
 

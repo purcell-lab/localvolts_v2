@@ -71,3 +71,26 @@ def test_a_clean_body_raises_nothing():
     """A normal interval array must pass straight through."""
     LocalVoltsClient._raise_for_payload_error([{"intervalEnd": "2026-08-10T00:05:00Z"}])
     LocalVoltsClient._raise_for_payload_error([])
+
+
+def test_window_bounds_are_rendered_as_iso_8601_utc_timestamps():
+    """A datetime bound is sent in the form API Guide 0.9.8 section 3.2 asks for.
+
+    The guide's example is 2023-05-15T02:40:00Z. A naive datetime is read as UTC
+    rather than rejected, and an offset aware one is converted, so a caller
+    cannot accidentally send a local wall clock time as though it were UTC.
+    """
+    from datetime import date, datetime, timedelta, timezone
+
+    from custom_components.localvolts_v2.api import LocalVoltsClient
+
+    render = LocalVoltsClient._format_bound
+
+    assert render(datetime(2026, 8, 31, 7, 30, tzinfo=timezone(timedelta(hours=10)))) == (
+        "2026-08-30T21:30:00Z"
+    )
+    assert render(datetime(2026, 8, 30, 21, 30, tzinfo=timezone.utc)) == "2026-08-30T21:30:00Z"
+    assert render(datetime(2026, 8, 30, 21, 30)) == "2026-08-30T21:30:00Z"
+    # A bare date still goes out as a bare date, which the API resolves at site
+    # local midnight. Callers asking for whole days rely on that.
+    assert render(date(2026, 8, 31)) == "2026-08-31"

@@ -330,22 +330,48 @@ array, so it is easily mistaken for absent data. Use
 covering `09 Aug 00:00` through `10 Aug 00:00` local. Date parameters are interpreted in
 local time, not UTC.
 
-**The horizon ends at the close of the current local day, not a rolling 24 hours.** At
-11:04 on the 9th the furthest available interval ended at `10 Aug 00:00`. A window
-beyond it is rejected:
+**Corrected 2026-08-31. The horizon is a rolling 24 hours. It was the request that ended
+at the close of the local day, not the data.** This section previously concluded from the
+observation below that the service only publishes to local midnight. That was wrong, and
+the wrong conclusion is what kept the defect alive.
+
+The observation was real: at 11:04 on the 9th the furthest interval returned ended at
+`10 Aug 00:00`. But the request that produced it asked for `to` = the next local
+midnight, so that is simply where it was told to stop. Asking correctly returns a full
+rolling day. Measured on 2026-08-31 at 08:49 local, two calls seconds apart:
+
+| request | forecast intervals | furthest forecast |
+| --- | --- | --- |
+| `to` = next local midnight, the old form | 182 | 15.17 h ahead |
+| `to` = now plus 24 h, the current form | 287 | 23.92 h ahead |
+
+A window reaching further than 24 hours ahead is rejected, and that limit is real:
 
 ```json
 [{"error":"Bad Request","message":"Future data limited to 1 day(s) ahead"}]
 ```
 
+Note also that the guide's `to=1day` keyword does not help here, because it resolves
+relative to `from` rather than to the current interval. Sent with a historical `from` it
+returns only history and no forecast at all.
+
 **That rejection arrives inside an HTTP 200.** The status line is not sufficient to
 detect failure, the body has to be inspected for an `error` key. This is the error on 200
 behaviour described in the v2 specification.
 
-Working request, date only parameters, which is the form the integration uses:
+Working request for one whole local day, date only parameters:
 
 ```bash
 curl -sS "https://api2.localvolts.com/v2/customer/interval?NMI=<your NMI>&from=2026-08-09&to=2026-08-10" \
+  -H "Authorization: apikey <your key>" -H "partner: <your partner id>"
+```
+
+The integration no longer uses that form. It sends ISO 8601 UTC timestamps, reaching back
+to local midnight two days ago and forward a full 24 hours from the current interval, so
+the forecast horizon does not depend on the time of day:
+
+```bash
+curl -sS "https://api2.localvolts.com/v2/customer/interval?NMI=<your NMI>&from=2026-08-28T14:00:00Z&to=2026-08-31T22:49:50Z" \
   -H "Authorization: apikey <your key>" -H "partner: <your partner id>"
 ```
 
