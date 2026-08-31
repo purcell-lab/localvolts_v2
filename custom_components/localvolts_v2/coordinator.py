@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import LocalVoltsClient, parse_interval_end
+from .long_term_statistics import DailyStatisticsImporter
 from .reconciliation import DayReconciliation, reconcile_day
 from .const import (
     API_MAX_HISTORY,
@@ -113,6 +114,7 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         client: LocalVoltsClient,
         nmi: str,
         scan_interval: timedelta = DEFAULT_SCAN_INTERVAL,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -122,6 +124,12 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         )
         self.client = client
         self.nmi = nmi
+        # Long term statistics are written per config entry, so an importer only
+        # exists when the coordinator was built from one. Tests and one off
+        # snapshots construct it without an entry and simply do not record.
+        self._statistics = (
+            DailyStatisticsImporter(hass, entry_id) if entry_id else None
+        )
 
     def _request_window(self, now: datetime, local_now: datetime) -> tuple[datetime, datetime]:
         """Return the interval window to request, as UTC timestamps.
@@ -183,6 +191,9 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
                 sell_records, yesterday_day, "amountAll", local_now.tzinfo
             ),
         }
+
+        if self._statistics is not None:
+            await self._statistics.async_update(buy_records, sell_records, local_now)
 
         market_stats: dict[str, Any] | None
         try:
