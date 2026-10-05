@@ -68,6 +68,7 @@ from .const import (
 )
 from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import build_haeo_feed_sensors
+from .paired_feed import LocalVoltsFlexUpForecastSensor
 
 PARALLEL_UPDATES = 0
 
@@ -183,6 +184,7 @@ async def async_setup_entry(
     # from the rate sensors because HAEO requires {"time", "value"} rows and a
     # single unit per entity.
     entities.extend(build_haeo_feed_sensors(coordinator, entry))
+    entities.append(LocalVoltsFlexUpForecastSensor(coordinator, entry))
     async_add_entities(entities, update_before_add=True)
 
 
