@@ -370,9 +370,17 @@ class _DailySettledAmountSensor(LocalVoltsSensorBase):
         return dt_util.start_of_local_day()
 
     @property
-    def native_value(self) -> float:
-        """Return today's settled total."""
-        return self._today_total()[0]
+    def native_value(self) -> float | None:
+        """Return today's settled total.
+
+        None when today has rows but none of them carried a usable amount, for
+        instance because the API stated a unit this integration does not read.
+        That is unknown, not zero dollars.
+        """
+        total, count = self._today_total()
+        if count == 0 and self._today_records():
+            return None
+        return total
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

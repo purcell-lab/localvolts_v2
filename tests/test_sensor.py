@@ -316,3 +316,50 @@ async def test_a_missing_zero_ee_is_none_not_zero(hass):
     sensor = LocalVoltsCurrentBuyRateSensor(coordinator, entry)
 
     assert sensor.extra_state_attributes["zeroEE"] is None
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_daily_cost_is_unavailable_when_no_row_has_a_usable_amount(hass):
+    """Rows exist but every amount was blanked: unknown, not zero dollars."""
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "1234567890")
+    midday = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    rows = [
+        _record("Buy", "Exp", intervalEnd=_utc_stamp(midday + timedelta(minutes=5 * i)), amountAll=None)
+        for i in range(3)
+    ]
+    coordinator.async_set_updated_data(
+        LocalVoltsData(
+            current_buy=rows[0],
+            current_sell=None,
+            buy_forecast=[],
+            sell_forecast=[],
+            buy_history=rows,
+            sell_history=[],
+            market_stats=None,
+            last_update=datetime.now(timezone.utc),
+        )
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    sensor = LocalVoltsDailyCostSensor(coordinator, entry)
+
+    assert sensor.native_value is None
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_daily_cost_with_no_rows_today_is_still_zero(hass):
+    """The new rule applies only when rows exist and are unusable."""
+    coordinator = LocalVoltsCoordinator(hass, MagicMock(), "1234567890")
+    coordinator.async_set_updated_data(
+        LocalVoltsData(
+            current_buy=None,
+            current_sell=None,
+            buy_forecast=[],
+            sell_forecast=[],
+            buy_history=[],
+            sell_history=[],
+            market_stats=None,
+            last_update=datetime.now(timezone.utc),
+        )
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    assert LocalVoltsDailyCostSensor(coordinator, entry).native_value == 0.0

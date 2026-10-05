@@ -229,6 +229,10 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 `zeroEE` is the share of zero emissions energy in the current interval, published exactly as the API returns it. The guide documents the unit as a percent, but `zeroEEUnits` is never returned, and every value seen on 2026-08-30 sat between 0.023 and 1.0, so read it as a 0 to 1 fraction, the same convention as `proportionP2P`.
 
+### Units are checked
+
+Every value in an interval row is paired with a unit string. The integration reads dollars, kWh, c/kWh and g-CO2e, and checks the unit string on each row. If a value arrives in anything else, that value is left unavailable and the mismatch is logged once at warning level, instead of publishing a number that is out by 100 or 1000. A daily or yesterday total with no usable amount is unavailable, not zero. All units have been constant in live responses so far, so this is a defensive check.
+
 ## Settlement quality and what the totals are worth
 
 `Act` quality was never observed once in roughly 3,500 records across five days, and history is capped at three days, so settlement happens out of reach of this endpoint. Worse, promotion from `Fcst` to `Exp` was measured to rewrite only `spotCost`, leaving `amountAll`, `volume` and `proportionP2P` exactly as forecast. A full day of `Exp` is a promoted forecast, not a measurement.

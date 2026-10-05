@@ -202,6 +202,7 @@ def reconcile_day(
     )
 
     total = 0.0
+    contributed = 0
     counts: dict[str, int] = {}
     for record in day_records:
         quality = str(record.get("quality") or "unknown")
@@ -210,6 +211,7 @@ def reconcile_day(
             total += float(record[amount_key])
         except (KeyError, TypeError, ValueError):
             continue
+        contributed += 1
 
     present = len(day_records)
     complete = present >= expected
@@ -229,7 +231,10 @@ def reconcile_day(
 
     return DayReconciliation(
         day=day,
-        total=round(total, 6),
+        # Rows with no amount at all, for instance because their unit did not
+        # match, add nothing. A day where no row contributed has no total, which
+        # is not the same as a total of zero dollars.
+        total=round(total, 6) if contributed else None,
         intervals_present=present,
         intervals_expected=expected,
         quality_counts=counts,
