@@ -51,14 +51,45 @@ DIRECTION_SELL = "Sell"
 QUALITY_FORECAST = "Fcst"
 QUALITY_EXPECTED = "Exp"
 QUALITY_ACTUAL = "Act"
+# Added with API Guide 0.9.8, section 3.3. Both describe meter data that the
+# meter data provider substituted for a real reading, so both describe an
+# interval that has definitely elapsed. Neither has been observed live yet.
+QUALITY_SUBSTITUTED = "Sub"
+QUALITY_FINAL_SUBSTITUTED = "FSub"
+
+# The five values the guide documents. Anything else is logged once and treated
+# as not elapsed, so a value added by a later API revision is visible rather
+# than silently dropped from the totals.
+KNOWN_QUALITIES = frozenset(
+    {
+        QUALITY_FORECAST,
+        QUALITY_EXPECTED,
+        QUALITY_ACTUAL,
+        QUALITY_SUBSTITUTED,
+        QUALITY_FINAL_SUBSTITUTED,
+    }
+)
 
 # Rows that describe an interval which has already elapsed. Exp is included
-# because nothing else is on offer: Act was not seen once in roughly 3,500
-# records across five days, and history is capped at three days, so a row that
-# is ever restated to Act is restated out of reach. Exp is an elapsed interval,
-# not a measured one. Promotion from Fcst to Exp was observed to rewrite only
-# spotCost, leaving amountAll, volume and proportionP2P exactly as forecast.
-ELAPSED_QUALITIES = frozenset({QUALITY_EXPECTED, QUALITY_ACTUAL})
+# because it was the only elapsed quality seen for the first weeks of
+# measurement: Act was not seen once in roughly 3,500 records across five days
+# in August 2026. Act has since been observed, 141 of 288 rows for 4 October
+# 2026, mixed with rows still at Fcst, so a day is not all one quality. Exp is
+# an elapsed interval, not a measured one. Promotion from Fcst to Exp was
+# observed to rewrite only spotCost, leaving amountAll, volume and
+# proportionP2P exactly as forecast.
+#
+# Sub and FSub are included because substituted meter data is exactly what
+# arrives after a communications outage. Leaving them out would drop those
+# intervals from every daily total with no sign that anything was missing.
+ELAPSED_QUALITIES = frozenset(
+    {
+        QUALITY_EXPECTED,
+        QUALITY_ACTUAL,
+        QUALITY_SUBSTITUTED,
+        QUALITY_FINAL_SUBSTITUTED,
+    }
+)
 
 # Retained under the old name because it is the public shape other code reads.
 SETTLED_QUALITIES = ELAPSED_QUALITIES

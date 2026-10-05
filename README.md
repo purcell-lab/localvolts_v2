@@ -231,6 +231,10 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 
 `Act` quality was never observed once in roughly 3,500 records across five days, and history is capped at three days, so settlement happens out of reach of this endpoint. Worse, promotion from `Fcst` to `Exp` was measured to rewrite only `spotCost`, leaving `amountAll`, `volume` and `proportionP2P` exactly as forecast. A full day of `Exp` is a promoted forecast, not a measurement.
 
+`Act` has since been observed. On 5 October 2026 the Yesterday sensors held 141 `Act` rows and 147 `Fcst` rows for the previous day, scattered through it rather than in one block, so a past day is not a single quality.
+
+The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst`. `Sub` and `FSub` are meter data the meter data provider substituted, so both describe an interval that has elapsed and both count towards the daily and yesterday totals. `FSub` is a final substitution and counts as settled, so a day made only of `Act` and `FSub` rows is `confirmed`. `Sub` can still be revised and counts as `provisional`, like `Exp`. Neither has been seen live. A value outside these five is logged once and its rows are left out of the totals.
+
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
 ## Upgrading to 2.6.0

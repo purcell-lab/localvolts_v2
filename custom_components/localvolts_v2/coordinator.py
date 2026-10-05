@@ -20,6 +20,7 @@ from .const import (
     DIRECTION_BUY,
     DIRECTION_SELL,
     DOMAIN,
+    KNOWN_QUALITIES,
     QUALITY_FORECAST,
     SETTLED_QUALITIES,
 )
@@ -130,6 +131,32 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         self._statistics = (
             DailyStatisticsImporter(hass, entry_id) if entry_id else None
         )
+        # Quality strings already reported as unrecognised, so a value that
+        # appears on every poll is logged once rather than every five minutes.
+        self._unrecognised_qualities: set[str] = set()
+
+    def _report_unrecognised_qualities(self, records: list[dict[str, Any]]) -> None:
+        """Log, once each, quality values the integration does not know.
+
+        An unrecognised value is not in SETTLED_QUALITIES, so its rows are left
+        out of the daily totals. That is the safe direction, but it must not be
+        silent: a total that is light for no visible reason is worse than one
+        that says why.
+        """
+        seen = {
+            str(record.get("quality"))
+            for record in records
+            if record.get("quality") is not None
+        }
+        for quality in sorted(seen - KNOWN_QUALITIES - self._unrecognised_qualities):
+            self._unrecognised_qualities.add(quality)
+            _LOGGER.warning(
+                "LocalVolts returned an unrecognised quality value %r. Rows with this "
+                "value are left out of the daily totals until the integration knows "
+                "what it means. Known values: %s",
+                quality,
+                ", ".join(sorted(KNOWN_QUALITIES)),
+            )
 
     def _request_window(self, now: datetime, local_now: datetime) -> tuple[datetime, datetime]:
         """Return the interval window to request, as UTC timestamps.
@@ -171,6 +198,8 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
                 )
                 return self.data
             raise UpdateFailed(f"LocalVolts v2 interval fetch failed: {exc}") from exc
+
+        self._report_unrecognised_qualities(records)
 
         buy_records = _sorted_records(
             [record for record in records if record.get("direction") == DIRECTION_BUY]

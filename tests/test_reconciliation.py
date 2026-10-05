@@ -164,3 +164,48 @@ def test_a_row_missing_its_amount_still_counts_as_present():
     assert result.intervals_present == 288
     assert result.state == STATE_PROVISIONAL
     assert result.total == pytest.approx(2.87), "the blank row adds nothing"
+
+
+def test_a_full_day_of_final_substitution_is_confirmed():
+    """FSub is the meter data provider's final word, as settled as this feed gets."""
+    result = reconcile_day(_rows(288, quality="FSub"), DAY, "amountAll", BNE)
+
+    assert result.state == STATE_CONFIRMED
+    assert result.total == pytest.approx(2.88)
+    assert result.summary == "all 288 intervals final (0 Act, 288 FSub)"
+
+
+def test_act_and_final_substitution_together_are_confirmed():
+    rows = _rows(200, quality="Act") + _rows(88, quality="FSub", start_index=200)
+    result = reconcile_day(rows, DAY, "amountAll", BNE)
+
+    assert result.state == STATE_CONFIRMED
+    assert result.summary == "all 288 intervals final (200 Act, 88 FSub)"
+
+
+def test_substituted_data_is_provisional_not_confirmed():
+    """Sub can still be revised, so it ranks with Exp rather than with Act."""
+    result = reconcile_day(_rows(288, quality="Sub"), DAY, "amountAll", BNE)
+
+    assert result.state == STATE_PROVISIONAL
+    assert result.total == pytest.approx(2.88)
+
+
+def test_one_sub_row_holds_an_otherwise_final_day_at_provisional():
+    rows = _rows(287, quality="FSub") + _rows(1, quality="Sub", start_index=287)
+    assert reconcile_day(rows, DAY, "amountAll", BNE).state == STATE_PROVISIONAL
+
+
+def test_substituted_rows_are_counted_in_the_total_and_the_breakdown():
+    rows = _rows(144, quality="Sub") + _rows(144, quality="FSub", start_index=144)
+    result = reconcile_day(rows, DAY, "amountAll", BNE)
+
+    assert result.quality_counts == {"Sub": 144, "FSub": 144}
+    assert result.intervals_missing == 0
+    assert result.total == pytest.approx(2.88)
+
+
+def test_an_unrecognised_quality_can_never_confirm_a_day():
+    """A sixth value from a future API revision must not upgrade the day."""
+    rows = _rows(287, quality="Act") + _rows(1, quality="Mystery", start_index=287)
+    assert reconcile_day(rows, DAY, "amountAll", BNE).state == STATE_PARTIAL
