@@ -284,6 +284,21 @@ The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.7.0
+
+This release closes the gaps found by auditing the integration against the official API guide.
+
+- The `forecast` attribute on Current Buy Rate and Current Sell Rate gains `matchedCost` and `quality` on every row, so the peer matched rate for each interval is `matchedCost / (volume x proportionP2P)`. The README no longer lists a `time` key on these rows, which was never published.
+- `Sub` and `FSub` quality values are recognised. Both count towards the daily and yesterday totals, where before they were dropped silently. A day made only of `Act` and `FSub` rows is `confirmed`. An unrecognised value is logged once.
+- Current Buy Rate and Current Sell Rate gain a `zeroEE` attribute, the raw 0 to 1 share of zero emissions energy.
+- Unit strings are checked. A value in a unit the integration does not read is left unavailable and logged once. A daily or yesterday total with no usable amount is now unavailable instead of zero. No scaled response has been seen, so this is defensive.
+- Six diagnostic entities are added from `GET /v2/customer/metadata`, read once: NEM Region, Read Type, Distribution Loss Factor Code, Network Tariff Code, Circuit and Meter Suffix. The last four are site specific, so they are disabled by default and never logged. Enable them from the device page. `NMI`, `LNSP`, `TNI`, `MDP` and `Jurisdiction` are discarded.
+- Market Participants is unavailable when its undocumented source cannot be read, and unknown, not zero, when a count is missing.
+
+New entities are added and none are removed or renamed. A restart is required, because the metadata read happens during setup.
+
+Minor rather than patch because new entities and attributes appear.
+
 ## Upgrading to 2.6.0
 
 Settled daily import cost and export earnings are now written into long term statistics, so a statistics card or an energy chart can read back a week, a month or a year instead of only what the recorder kept for the entities. Two external series are created, `localvolts_v2:<entry>_cost` and `localvolts_v2:<entry>_earnings`, one point per settled local day stamped to the start of that day. `<entry>` is the lowercased config entry id, so the statistic id carries no account identifier. Details, including why a complete day holding `Fcst` rows is written at face value, are under [Settled daily long term statistics](#settled-daily-long-term-statistics).
