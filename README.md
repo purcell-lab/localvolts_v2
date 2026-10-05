@@ -160,6 +160,9 @@ Points are stamped at the interval **start**, derived from `intervalEnd` less th
 
 `flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` if the opposite sign is wanted.
 
+One more sensor, Flex Up Forecast, pairs both directions on the same row. Its `forecast` attribute is a list of `{"time", "costsflexup", "earningsflexup", "quality"}` mappings in `$/kWh`, where `costsflexup` is the Buy `flexUp` and `earningsflexup` is the Sell `flexUp`, paired on `intervalEnd`. `time` is the interval start, as on the other sensors, and `quality` is the Buy row's value. An interval with either side missing is left out. The state is the current Buy `flexUp`. The attribute is excluded from the recorder. It exists so a consumer that wants both directions reads one entity, and it was requested on issue #31.
+
+
 If your optimizer sums every entity assigned to a field rather than choosing between them, adding one of these prices alongside an existing price series in the same field will double count.
 
 ### Forecast chart
