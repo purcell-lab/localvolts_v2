@@ -55,6 +55,7 @@ from .const import (
     DOMAIN,
     FORECAST_FIELD_DIGITS,
     FORECAST_FIELDS,
+    FORECAST_TEXT_FIELDS,
     INTERVAL_FIELD_DIGITS,
     INTERVAL_FIELDS,
     ATTR_INTERVALS,
@@ -90,6 +91,8 @@ def _record_local_date(record: dict[str, Any]) -> datetime | None:
 def _forecast_entry(record: dict[str, Any]) -> dict[str, Any]:
     """Return one compact, template-friendly forecast row."""
     entry: dict[str, Any] = {ATTR_INTERVAL_END: record.get(ATTR_INTERVAL_END)}
+    for field in FORECAST_TEXT_FIELDS:
+        entry[field] = record.get(field)
     for field in FORECAST_FIELDS:
         value = _number(record, field)
         entry[field] = (
@@ -131,7 +134,7 @@ def _with_forecast(
         **base,
         ATTR_FORECAST: entries,
         ATTR_FORECAST_ENTRIES: len(entries),
-        ATTR_FORECAST_FIELDS: list(FORECAST_FIELDS),
+        ATTR_FORECAST_FIELDS: [*FORECAST_TEXT_FIELDS, *FORECAST_FIELDS],
     }
 
 

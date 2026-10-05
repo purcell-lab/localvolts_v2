@@ -20,6 +20,7 @@ from custom_components.localvolts_v2.const import (
     CONF_PARTNER_ID,
     DOMAIN,
     FORECAST_FIELDS,
+    FORECAST_TEXT_FIELDS,
 )
 from custom_components.localvolts_v2.coordinator import (
     LocalVoltsCoordinator,
@@ -134,10 +135,13 @@ def test_no_interval_is_dropped_at_any_size():
 
 def test_no_field_is_shed_at_any_size():
     """Every row carries the full field set regardless of horizon length."""
-    expected = {"intervalEnd", *FORECAST_FIELDS}
+    expected = {"intervalEnd", *FORECAST_TEXT_FIELDS, *FORECAST_FIELDS}
     for count in (12, 288, 2016):
         attributes = _with_forecast(BASE_ATTRIBUTES, _forecast_records(count))
-        assert attributes["forecast_fields"] == list(FORECAST_FIELDS)
+        assert attributes["forecast_fields"] == [
+            *FORECAST_TEXT_FIELDS,
+            *FORECAST_FIELDS,
+        ]
         assert set(attributes["forecast"][0]) == expected
 
 
