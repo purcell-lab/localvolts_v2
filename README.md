@@ -292,7 +292,7 @@ This release closes the gaps found by auditing the integration against the offic
 - `Sub` and `FSub` quality values are recognised. Both count towards the daily and yesterday totals, where before they were dropped silently. A day made only of `Act` and `FSub` rows is `confirmed`. An unrecognised value is logged once.
 - Current Buy Rate and Current Sell Rate gain a `zeroEE` attribute, the raw 0 to 1 share of zero emissions energy.
 - Unit strings are checked. A value in a unit the integration does not read is left unavailable and logged once. A daily or yesterday total with no usable amount is now unavailable instead of zero. No scaled response has been seen, so this is defensive.
-- Two diagnostic entities are added, NEM Region and Read Type, from `GET /v2/customer/metadata`, read once. Every other field in that response is discarded so nothing that identifies a site is published.
+- Six diagnostic entities are added from `GET /v2/customer/metadata`, read once: NEM Region, Read Type, Distribution Loss Factor Code, Network Tariff Code, Circuit and Meter Suffix. The last four are site specific, so they are disabled by default and never logged. Enable them from the device page. `NMI`, `LNSP`, `TNI`, `MDP` and `Jurisdiction` are discarded.
 - Market Participants is unavailable when its undocumented source cannot be read, and unknown, not zero, when a count is missing.
 
 New entities are added and none are removed or renamed. A restart is required, because the metadata read happens during setup.
