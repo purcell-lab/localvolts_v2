@@ -68,9 +68,8 @@ from .const import (
 )
 from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import build_haeo_feed_sensors
-from .paired_feed import LocalVoltsFlexUpForecastSensor
-
 from .p2p_history_sensor import LocalVoltsP2PHistorySensor
+from .paired_feed import LocalVoltsFlexUpForecastSensor
 
 PARALLEL_UPDATES = 0
 
