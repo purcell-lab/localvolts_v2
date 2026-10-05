@@ -424,6 +424,9 @@ treat the mechanism as inference. Anyone relying on this document should do the 
   predate the buy contracts and so cannot distinguish an API gap from an absence of
   trades. There is no trades or orders endpoint on this API, 12 candidate paths all
   returned 404, so portal figures cannot be reconciled programmatically.
-- Field semantics and the error on 200 behaviour, `API_V2_SPECIFICATION.md` sections 4
-  and 5.2.
+- Field semantics, the official LocalVolts API Guide 0.9.8 section 3.3, transcribed at
+  [api/lv-api-guide-0.9.8.md](api/lv-api-guide-0.9.8.md).
+- The error on 200 behaviour is a field measurement and is not in the guide, which
+  describes authentication failures as HTTP 500. See
+  [api/endpoint-audit.md](api/endpoint-audit.md).
 - Derivations as implemented in `custom_components/localvolts_v2/haeo_feed.py`.
