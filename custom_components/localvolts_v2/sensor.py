@@ -70,6 +70,8 @@ from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import build_haeo_feed_sensors
 from .paired_feed import LocalVoltsFlexUpForecastSensor
 
+from .p2p_history_sensor import LocalVoltsP2PHistorySensor
+
 PARALLEL_UPDATES = 0
 
 # (API field, entity name, unique id suffix) for each customer metadata sensor.
@@ -185,6 +187,8 @@ async def async_setup_entry(
     # single unit per entity.
     entities.extend(build_haeo_feed_sensors(coordinator, entry))
     entities.append(LocalVoltsFlexUpForecastSensor(coordinator, entry))
+
+    entities.append(LocalVoltsP2PHistorySensor(coordinator, entry))
     async_add_entities(entities, update_before_add=True)
 
 
