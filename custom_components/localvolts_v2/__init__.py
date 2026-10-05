@@ -28,6 +28,7 @@ from .const import (
     SERVICE_REFRESH_FORECAST,
 )
 from .coordinator import LocalVoltsCoordinator
+from .p2p_history import async_remove_history
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -268,3 +269,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the entry after options changes."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the stored peer to peer history when the entry is removed."""
+    await async_remove_history(hass, entry.entry_id)

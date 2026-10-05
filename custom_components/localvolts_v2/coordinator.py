@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import LocalVoltsClient, parse_interval_end
 from .long_term_statistics import DailyStatisticsImporter
+from .p2p_history import P2PSettlementHistory
 from .reconciliation import DayReconciliation, reconcile_day
 from .const import (
     API_MAX_HISTORY,
@@ -131,6 +132,10 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         self._statistics = (
             DailyStatisticsImporter(hass, entry_id) if entry_id else None
         )
+        # Rolling per day peer to peer export totals, kept in Home Assistant
+        # storage because the API serves only three local days at a time. Like
+        # the statistics importer it needs a config entry to key its storage.
+        self.p2p_history = P2PSettlementHistory(hass, entry_id) if entry_id else None
         # Quality strings already reported as unrecognised, so a value that
         # appears on every poll is logged once rather than every five minutes.
         self._unrecognised_qualities: set[str] = set()
@@ -243,6 +248,12 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
 
         if self._statistics is not None:
             await self._statistics.async_update(buy_records, sell_records, local_now)
+
+        if self.p2p_history is not None:
+            try:
+                await self.p2p_history.async_update(sell_records, local_now)
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning("LocalVolts P2P history update failed (non-fatal): %s", exc)
 
         market_stats: dict[str, Any] | None
         try:

@@ -183,6 +183,24 @@ Peer matched series carry point markers rather than lines alone. Matching arrive
 
 Rendered from a real 24 hour window at a single residential premises. The chart carries no meter identifier, so it is safe to share.
 
+### Peer to peer settlement history
+
+The API serves at most three local days, so a longer record has to be kept by the integration. The P2P Settlement History sensor does that. Its state is the number of days held and its `history` attribute is a mapping keyed by local date:
+
+```json
+{"2026-10-04": {"export_cost": 14.535948, "export_volume": 42.955274, "spot_export_volume": 57.388726, "settlement_state": "partial", "intervals": 288}}
+```
+
+All three figures come from Sell rows. `export_cost` is the sum of `matchedCost`, in dollars. `export_volume` is the sum of `volume x proportionP2P` and `spot_export_volume` is the sum of `volume x (1 - proportionP2P)`, both in kWh. `settlement_state` is the day's state as on the Yesterday sensors.
+
+- A day is stored once it is over and every interval of it arrived with `volume`, `proportionP2P` and `matchedCost`. A day short of any of that is skipped, not stored low.
+- A day is rewritten while it stays inside the fetch window, so a restatement is picked up. After that it is kept as last written.
+- Up to 14 days are kept in Home Assistant storage, so they survive restarts. A new install holds the two complete days in the window and gains one more each day. Removing the integration deletes the store.
+- The attribute is excluded from the recorder.
+- The totals have the grade of the rows they rest on, which is mostly `Fcst` and `Exp`. They suit a volume average. They are not a substitute for the retailer's settlement statements.
+
+This was requested on issue #31.
+
 ## Services
 
 ### Refresh forecast
