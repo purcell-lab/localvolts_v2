@@ -58,7 +58,7 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
-| Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. |
+| Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. Undocumented: `/v2/market/stats` is not in the API guide, so this sensor has no stated contract and can become unavailable or be withdrawn without notice. It is unavailable whenever the snapshot cannot be fetched. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 ### Cost accounting

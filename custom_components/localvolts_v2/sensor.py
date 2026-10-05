@@ -540,16 +540,29 @@ class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
         self._attr_name = "Market Participants"
 
     @property
-    def native_value(self) -> float | None:
-        """Return active loads plus active generators when the snapshot is available."""
+    def available(self) -> bool:
+        """Report unavailable when the snapshot could not be fetched.
+
+        /v2/market/stats is not in the API guide, so it can fail or be withdrawn
+        without notice. When that happens the coordinator sets the snapshot to
+        None, and the entity should say so rather than show unknown or a number.
+        """
         stats = self.coordinator.data.market_stats if self.coordinator.data else None
-        if stats is None:
+        return super().available and stats is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return active loads plus active generators when both were reported.
+
+        A snapshot that lacks either count is not a count of zero participants,
+        so it reads as unknown instead of silently defaulting the missing one.
+        """
+        stats = self.coordinator.data.market_stats if self.coordinator.data else None
+        if not isinstance(stats, dict):
             return None
         try:
-            return float(stats.get("active_loads", 0)) + float(
-                stats.get("active_generators", 0)
-            )
-        except (TypeError, ValueError):
+            return float(stats["active_loads"]) + float(stats["active_generators"])
+        except (KeyError, TypeError, ValueError):
             return None
 
     @property
