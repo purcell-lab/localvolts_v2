@@ -103,3 +103,66 @@ def test_request_window_clamps_the_back_edge_to_what_the_service_serves(hass):
 
     assert now - from_dt <= timedelta(hours=72)
     assert now - from_dt == timedelta(hours=71)
+
+
+async def test_substituted_rows_reach_the_history_the_daily_totals_read(hass):
+    """Sub and FSub describe elapsed intervals, so they must not be dropped."""
+    when = datetime.now(timezone.utc) - timedelta(minutes=10)
+    v2_client = MagicMock()
+    v2_client.fetch_interval = AsyncMock(
+        return_value=[
+            _record("Buy", "Sub", when),
+            _record("Buy", "FSub", when - timedelta(minutes=5)),
+            _record("Sell", "Sub", when),
+            _record("Sell", "FSub", when - timedelta(minutes=5)),
+        ]
+    )
+    v2_client.fetch_market_stats = AsyncMock(return_value=None)
+
+    coordinator = LocalVoltsCoordinator(hass, v2_client, "1234567890")
+    data = await coordinator._async_update_data()
+
+    assert {r["quality"] for r in data.buy_history} == {"Sub", "FSub"}
+    assert {r["quality"] for r in data.sell_history} == {"Sub", "FSub"}
+
+
+async def test_an_unrecognised_quality_is_logged_once_and_left_out(hass, caplog):
+    """Silent exclusion is the failure being closed: say so, but only once."""
+    when = datetime.now(timezone.utc) - timedelta(minutes=10)
+    v2_client = MagicMock()
+    v2_client.fetch_interval = AsyncMock(
+        return_value=[
+            _record("Buy", "Exp", when),
+            _record("Buy", "Mystery", when - timedelta(minutes=5)),
+            _record("Sell", "Exp", when),
+        ]
+    )
+    v2_client.fetch_market_stats = AsyncMock(return_value=None)
+
+    coordinator = LocalVoltsCoordinator(hass, v2_client, "1234567890")
+    with caplog.at_level("WARNING"):
+        first = await coordinator._async_update_data()
+        await coordinator._async_update_data()
+
+    assert [r["quality"] for r in first.buy_history] == ["Exp"]
+    messages = [m for m in caplog.messages if "unrecognised quality" in m]
+    assert len(messages) == 1
+    assert "'Mystery'" in messages[0]
+
+
+async def test_known_qualities_are_never_reported(hass, caplog):
+    when = datetime.now(timezone.utc) - timedelta(minutes=10)
+    v2_client = MagicMock()
+    v2_client.fetch_interval = AsyncMock(
+        return_value=[
+            _record("Buy", q, when - timedelta(minutes=5 * i))
+            for i, q in enumerate(("Act", "Sub", "FSub", "Exp", "Fcst"))
+        ]
+    )
+    v2_client.fetch_market_stats = AsyncMock(return_value=None)
+
+    coordinator = LocalVoltsCoordinator(hass, v2_client, "1234567890")
+    with caplog.at_level("WARNING"):
+        await coordinator._async_update_data()
+
+    assert not [m for m in caplog.messages if "unrecognised quality" in m]

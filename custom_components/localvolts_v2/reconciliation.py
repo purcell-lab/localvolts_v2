@@ -26,7 +26,9 @@ from typing import Any
 from .const import (
     QUALITY_ACTUAL,
     QUALITY_EXPECTED,
+    QUALITY_FINAL_SUBSTITUTED,
     QUALITY_FORECAST,
+    QUALITY_SUBSTITUTED,
     STATE_CONFIRMED,
     STATE_NO_DATA,
     STATE_PARTIAL,
@@ -36,7 +38,19 @@ from .const import (
 # Qualities in increasing order of firmness. Anything unrecognised is treated as
 # weaker than a forecast so a new quality string can never silently upgrade a
 # day to confirmed.
-_QUALITY_ORDER = (QUALITY_FORECAST, QUALITY_EXPECTED, QUALITY_ACTUAL)
+#
+# Sub is the meter data provider's substitution for a missing reading, so it is
+# real data about an elapsed interval but may still be revised: provisional,
+# like Exp. FSub is the final substitution, as settled as the endpoint reports,
+# so a day made only of Act and FSub rows is confirmed.
+_QUALITY_ORDER = (
+    QUALITY_FORECAST,
+    QUALITY_EXPECTED,
+    QUALITY_SUBSTITUTED,
+    QUALITY_FINAL_SUBSTITUTED,
+    QUALITY_ACTUAL,
+)
+_CONFIRMED_FROM = _QUALITY_ORDER.index(QUALITY_FINAL_SUBSTITUTED)
 
 
 def _interval_minutes(records: list[dict[str, Any]]) -> float:
@@ -108,7 +122,13 @@ class DayReconciliation:
         if self.state == STATE_NO_DATA:
             return f"no intervals returned for {self.day.isoformat()}"
         if self.state == STATE_CONFIRMED:
-            return f"all {self.intervals_present} intervals settled to Act"
+            if self.intervals_not_actual == 0:
+                return f"all {self.intervals_present} intervals settled to Act"
+            return (
+                f"all {self.intervals_present} intervals final "
+                f"({self.quality_counts.get(QUALITY_ACTUAL, 0)} Act, "
+                f"{self.quality_counts.get(QUALITY_FINAL_SUBSTITUTED, 0)} FSub)"
+            )
 
         parts: list[str] = []
         if self.intervals_missing:
@@ -202,7 +222,7 @@ def reconcile_day(
         # Either the day has gaps, or part of it is still a forward looking
         # forecast. Both mean the total can still move by more than a restatement.
         state = STATE_PARTIAL
-    elif weakest == _QUALITY_ORDER.index(QUALITY_ACTUAL):
+    elif weakest >= _CONFIRMED_FROM:
         state = STATE_CONFIRMED
     else:
         state = STATE_PROVISIONAL
