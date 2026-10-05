@@ -50,8 +50,8 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 
 | Entity | Purpose |
 |---|---|
-| Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Buy forecast. |
-| Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components and the full forward Sell forecast. |
+| Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Buy forecast. |
+| Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Sell forecast. |
 | Daily Cost | Sum of today's elapsed Buy `amountAll` records, in AUD. |
 | Daily Earnings | Sum of today's elapsed Sell `amountAll` records, in AUD. This represents total export interval earnings, not only P2P-matched value. |
 | Daily Net Cost | Daily Cost less Daily Earnings, in AUD. Goes negative on a day that exports more value than it imports. |
@@ -226,6 +226,8 @@ Settlement rewrites `spotCost` and nothing else. Across 48 intervals observed mo
 For how peer matched export data is carried, which endpoint provides a forward view of it, and which entity to read for what, see [Peer to peer forecast, endpoint and sensor mapping](docs/p2p-forecast.md).
 
 If HAEO schedules a battery discharge earlier than the prices justify, see [Troubleshooting](docs/troubleshooting.md).
+
+`zeroEE` is the share of zero emissions energy in the current interval, published exactly as the API returns it. The guide documents the unit as a percent, but `zeroEEUnits` is never returned, and every value seen on 2026-08-30 sat between 0.023 and 1.0, so read it as a 0 to 1 fraction, the same convention as `proportionP2P`.
 
 ## Settlement quality and what the totals are worth
 

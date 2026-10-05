@@ -46,6 +46,7 @@ from .const import (
     ATTR_RATE_ALL_VAR,
     ATTR_SPOT_COST,
     ATTR_VOLUME,
+    ATTR_ZERO_EE,
     DEVICE_CONFIGURATION_URL,
     DEVICE_MANUFACTURER,
     DEVICE_NAME,
@@ -263,6 +264,7 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
             ATTR_INTERVAL_DURATION: current.get(ATTR_INTERVAL_DURATION),
             ATTR_LAST_UPDATE: current.get(ATTR_LAST_UPDATE),
             ATTR_EMISSIONS: _number(current, ATTR_EMISSIONS),
+            ATTR_ZERO_EE: _number(current, ATTR_ZERO_EE),
         }
         return _with_forecast(base, self._forecast)
 

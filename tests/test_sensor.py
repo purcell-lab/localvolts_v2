@@ -20,6 +20,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
 from custom_components.localvolts_v2.sensor import (
     LocalVoltsCurrentBuyRateSensor,
+    LocalVoltsCurrentSellRateSensor,
     LocalVoltsDailyCostSensor,
     LocalVoltsDailyEarningsSensor,
     LocalVoltsDailyNetCostSensor,
@@ -50,6 +51,7 @@ def _record(direction: str, quality: str, **values) -> dict:
         "flexUp": 1.0,
         "flexDown": -1.0,
         "emissions": 45.0,
+        "zeroEE": 0.35,
         **values,
     }
 
@@ -286,3 +288,31 @@ async def test_setup_registers_the_money_sensors(hass):
         if type(entity).__name__ == "LocalVoltsYesterdayReconciliationSensor"
     }
     assert labels == {"Yesterday Cost", "Yesterday Earnings"}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_zero_emissions_energy_sits_beside_emissions_on_the_rate_sensors(hass):
+    """zeroEE is published as the raw 0 to 1 fraction, not scaled to a percent."""
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    coordinator = _coordinator(hass)
+
+    for sensor in (
+        LocalVoltsCurrentBuyRateSensor(coordinator, entry),
+        LocalVoltsCurrentSellRateSensor(coordinator, entry),
+    ):
+        attrs = sensor.extra_state_attributes
+        assert attrs["emissions"] == 45.0
+        assert attrs["zeroEE"] == 0.35
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_a_missing_zero_ee_is_none_not_zero(hass):
+    """An interval that does not report it has no value, which is not 0 percent."""
+    coordinator = _coordinator(hass)
+    record = _record("Buy", "Exp")
+    del record["zeroEE"]
+    coordinator.data.current_buy = record
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_NMI: "1234567890"})
+    sensor = LocalVoltsCurrentBuyRateSensor(coordinator, entry)
+
+    assert sensor.extra_state_attributes["zeroEE"] is None
