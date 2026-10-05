@@ -113,7 +113,9 @@ The list is excluded from the recorder. That exclusion is applied before Home As
 For comparing a month or a year of this against a real invoice, and for what the differences will mean, see [reconciling against an invoice](docs/billing.md).
 
 
-The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `time`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, and `quality` for use in templates and automations.
+The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `quality`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, `flexDown` and `matchedCost` for use in templates and automations. `intervalEnd` is the end of the interval; the rows carry no `time` key, because on the single signal sensors below `time` means the interval start.
+
+The peer matched rate for an interval, in $/kWh, is `matchedCost / (volume x proportionP2P)`. `matchedCost` is rounded to eight decimal places because off peak intervals are worth a fraction of a cent. `quality` reads `Fcst` on every row today, since the attribute holds forward rows only.
 
 ### Single signal sensors
 

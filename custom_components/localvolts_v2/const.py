@@ -78,10 +78,19 @@ FORECAST_FIELD_DIGITS: dict[str, int] = {
     "proportionP2P": 4,
     "flexUp": 4,
     "flexDown": 4,
+    # matchedCost is a dollar amount for the interval and is small: a real
+    # evening row reads 0.268861 while an off peak row runs down to 0.000062. At
+    # five places the small ones round to nothing and the derived matched rate,
+    # matchedCost / (volume x proportionP2P), is lost, so it keeps the eight
+    # places that INTERVAL_FIELD_DIGITS gives the same field on a reconciled day.
+    "matchedCost": 8,
 }
 
-# Every field published on each forecast row.
+# Every numeric field published on each forecast row.
 FORECAST_FIELDS: tuple[str, ...] = tuple(FORECAST_FIELD_DIGITS)
+
+# Text fields published on each forecast row beside the numeric ones.
+FORECAST_TEXT_FIELDS: tuple[str, ...] = ("quality",)
 
 # Money and volume fields published on each interval of a reconciled day, with
 # the decimal places each is rounded to. amountAll is the field the total sums,
