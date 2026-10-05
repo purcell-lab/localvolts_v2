@@ -13,18 +13,18 @@ findings wherever the two disagree. Two paper findings did not survive; they are
 ## Status since this audit
 
 The audit describes release 2.4.0. Where a finding has since been acted on, the
-change is listed here. A pull request that is open is not yet in a release.
+change is listed here.
 
 | Finding | Change |
 |---|---|
 | Bare dates in `from` and `to`, three day window, forecast horizon shrinking through the day | Fixed in 2.5.0 (#27, issues #25 and #26). The coordinator sends ISO 8601 UTC timestamps and asks for 24 hours ahead |
-| `Sub` and `FSub` quality values undefined | Open pull request #33 (issue #24) |
-| `zeroEE` not read | Open pull request #34 (issue #23) |
-| Unit strings never read | Open pull request #35 (issue #22) |
-| Forecast rows lack `matchedCost` and `quality` | Open pull request #32 (issue #31) |
-| `/v2/customer/metadata` not called | Open pull request #38 reads `Region` and `ReadType` only (issue #18) |
-| `circuit` and `register` not read | Open pull request #37 pins down current behaviour (issue #20). No behaviour change |
-| `/v2/market/stats` undocumented | Open pull request #36 makes the sensor degrade cleanly and marks it undocumented (issue #19) |
+| `Sub` and `FSub` quality values undefined | Fixed in 2.7.0 (#33, issue #24) |
+| `zeroEE` not read | Fixed in 2.7.0 (#34, issue #23) |
+| Unit strings never read | Checked from 2.7.0 (#35, issue #22) |
+| Forecast rows lack `matchedCost` and `quality` | Fixed in 2.7.0 (#32, issue #31) |
+| `/v2/customer/metadata` not called | Read once from 2.7.0 (#38, issue #18). Six fields are kept: `Region`, `ReadType`, `DLF`, `Tariff`, `Circuit` and `Suffix` |
+| `circuit` and `register` not read | Current behaviour pinned down by tests in 2.7.0 (#37, issue #20). No behaviour change |
+| `/v2/market/stats` undocumented | The sensor degrades cleanly and is marked undocumented from 2.7.0 (#36, issue #19) |
 | Demand fields not read | No change. Issue #21 is labelled `wontfix`: every demand field is zero on the tested site |
 
 ## Endpoint coverage

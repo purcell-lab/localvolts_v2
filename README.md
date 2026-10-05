@@ -217,7 +217,7 @@ The official guide documents three callable paths in total, plus one legacy path
 |---|---|
 | `GET /version` | Yes, unauthenticated, as the config flow connectivity check |
 | `GET /v2/customer/interval` | Yes, once per coordinator refresh. This is the integration's only data source |
-| `GET /v2/customer/metadata` | No. Would supply NEM region, network tariff code, meter read type and the per circuit map |
+| `GET /v2/customer/metadata` | Yes, once at start up. Six of its fields are kept, see [Customer metadata](#customer-metadata) |
 | `GET /v1/customer/interval` | No, by decision. See [why v1 was dropped](#why-v1-was-dropped) |
 
 The integration also calls `GET /v2/market/stats`, which the guide does not document at any
