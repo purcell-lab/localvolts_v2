@@ -10,6 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -59,6 +60,7 @@ from .const import (
     FORECAST_TEXT_FIELDS,
     INTERVAL_FIELD_DIGITS,
     INTERVAL_FIELDS,
+    SITE_SPECIFIC_METADATA_FIELDS,
     ATTR_INTERVALS,
     ATTR_INTERVAL_FIELDS,
     ATTR_SETTLED_INTERVAL_COUNT,
@@ -68,6 +70,16 @@ from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import build_haeo_feed_sensors
 
 PARALLEL_UPDATES = 0
+
+# (API field, entity name, unique id suffix) for each customer metadata sensor.
+METADATA_SENSORS: tuple[tuple[str, str, str], ...] = (
+    ("Region", "NEM Region", "region"),
+    ("ReadType", "Read Type", "read_type"),
+    ("DLF", "Distribution Loss Factor Code", "dlf"),
+    ("Tariff", "Network Tariff Code", "tariff"),
+    ("Circuit", "Circuit", "circuit"),
+    ("Suffix", "Meter Suffix", "suffix"),
+)
 
 
 def _number(record: dict[str, Any] | None, key: str) -> float | None:
@@ -160,6 +172,12 @@ async def async_setup_entry(
         ),
         LocalVoltsP2PProportionSensor(coordinator, entry),
         LocalVoltsMarketStatsSensor(coordinator, entry),
+        *(
+            LocalVoltsMetadataSensor(
+                coordinator, entry, field=field, name=name, key=key
+            )
+            for field, name, key in METADATA_SENSORS
+        ),
     ]
     # Single signal sensors shaped for HAEO's forecast parser. Kept separate
     # from the rate sensors because HAEO requires {"time", "value"} rows and a
@@ -521,6 +539,39 @@ class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
             ATTR_DIRECTION: DIRECTION_SELL,
             ATTR_DESCRIPTION: "Fraction of current export volume matched P2P",
         }
+
+
+class LocalVoltsMetadataSensor(LocalVoltsSensorBase):
+    """A field from the customer metadata endpoint.
+
+    Only the fields in METADATA_FIELDS are ever built. The site specific ones
+    start disabled, see SITE_SPECIFIC_METADATA_FIELDS.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: LocalVoltsCoordinator,
+        entry: ConfigEntry,
+        *,
+        field: str,
+        name: str,
+        key: str,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._field = field
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_metadata_{key}"
+        self._attr_entity_registry_enabled_default = (
+            field not in SITE_SPECIFIC_METADATA_FIELDS
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the field, or None until the metadata has been read."""
+        metadata = self.coordinator.metadata
+        return None if metadata is None else metadata.get(self._field)
 
 
 class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
