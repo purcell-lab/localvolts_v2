@@ -18,6 +18,28 @@ API_BASE_URL = "https://api2.localvolts.com"
 API_INTERVAL_PATH = "/v2/customer/interval"
 API_MARKET_STATS_PATH = "/v2/market/stats"
 API_VERSION_PATH = "/version"
+API_METADATA_PATH = "/v2/customer/metadata"
+
+# The metadata fields the integration keeps. The endpoint also returns NMI, LNSP,
+# TNI, MDP and Jurisdiction, which are discarded where the response is read and
+# never reach a sensor, attribute, diagnostic or log.
+#
+# DLF, Tariff, Circuit and Suffix do narrow a site, so their sensors are
+# diagnostic and disabled by default, and their values are never written to a
+# log. Region and ReadType are not identifying and are enabled by default.
+METADATA_FIELDS: tuple[str, ...] = (
+    "Region",
+    "ReadType",
+    "DLF",
+    "Tariff",
+    "Circuit",
+    "Suffix",
+)
+
+# Fields whose sensors start disabled in the entity registry.
+SITE_SPECIFIC_METADATA_FIELDS: frozenset[str] = frozenset(
+    {"DLF", "Tariff", "Circuit", "Suffix"}
+)
 
 # Both bounds are enforced by the service, measured 2026-08-30. Asking for more
 # history than API_MAX_HISTORY is answered with "Historical data limited to 3

@@ -11,8 +11,10 @@ from .const import (
     API_BASE_URL,
     API_INTERVAL_PATH,
     API_MARKET_STATS_PATH,
+    API_METADATA_PATH,
     API_VERSION_PATH,
     EXPECTED_UNITS,
+    METADATA_FIELDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -275,6 +277,27 @@ class LocalVoltsClient:
         if not isinstance(result, dict):
             raise LocalVoltsApiError("LocalVolts market statistics result was not an object")
         return result
+
+    async def fetch_metadata(self, nmi: str) -> dict[str, str]:
+        """Fetch customer metadata, keeping only the fields in METADATA_FIELDS.
+
+        The response is one row per circuit. Everything outside
+        METADATA_FIELDS is dropped here, so no caller can publish it. Where
+        circuits disagree, for example one remote and one manual register, the
+        distinct values are joined in the order first seen.
+        """
+        payload = await self._async_get_json(API_METADATA_PATH, params={"NMI": nmi})
+        if not isinstance(payload, list):
+            raise LocalVoltsApiError("LocalVolts metadata response was not a JSON array")
+        kept: dict[str, list[str]] = {name: [] for name in METADATA_FIELDS}
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            for name in METADATA_FIELDS:
+                value = row.get(name)
+                if value not in (None, "") and str(value) not in kept[name]:
+                    kept[name].append(str(value))
+        return {name: ", ".join(values) for name, values in kept.items() if values}
 
     async def fetch_version(self) -> dict[str, Any]:
         """Fetch the API version endpoint for config-flow connectivity checks."""

@@ -134,6 +134,9 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         # Quality strings already reported as unrecognised, so a value that
         # appears on every poll is logged once rather than every five minutes.
         self._unrecognised_qualities: set[str] = set()
+        # The metadata fields, read once and kept. None until a fetch succeeds.
+        self.metadata: dict[str, str] | None = None
+        self._metadata_retry_after: datetime | None = None
 
     def _report_unrecognised_qualities(self, records: list[dict[str, Any]]) -> None:
         """Log, once each, quality values the integration does not know.
@@ -157,6 +160,22 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
                 quality,
                 ", ".join(sorted(KNOWN_QUALITIES)),
             )
+
+    async def _async_load_metadata(self, now: datetime) -> None:
+        """Read customer metadata once, retrying at most hourly after a failure.
+
+        Failure is not fatal. Pricing does not depend on it, so a withdrawn or
+        failing endpoint only leaves the metadata sensors unknown.
+        """
+        if self.metadata is not None:
+            return
+        if self._metadata_retry_after is not None and now < self._metadata_retry_after:
+            return
+        try:
+            self.metadata = await self.client.fetch_metadata(self.nmi)
+        except Exception as exc:  # noqa: BLE001
+            self._metadata_retry_after = now + timedelta(hours=1)
+            _LOGGER.debug("LocalVolts metadata fetch failed (non-fatal): %s", exc)
 
     def _request_window(self, now: datetime, local_now: datetime) -> tuple[datetime, datetime]:
         """Return the interval window to request, as UTC timestamps.
@@ -200,6 +219,7 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             raise UpdateFailed(f"LocalVolts v2 interval fetch failed: {exc}") from exc
 
         self._report_unrecognised_qualities(records)
+        await self._async_load_metadata(now)
 
         buy_records = _sorted_records(
             [record for record in records if record.get("direction") == DIRECTION_BUY]

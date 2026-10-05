@@ -59,6 +59,9 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
 | Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. Undocumented: `/v2/market/stats` is not in the API guide, so this sensor has no stated contract and can become unavailable or be withdrawn without notice. It is unavailable whenever the snapshot cannot be fetched. |
+| NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
+| Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
+| Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 ### Cost accounting
@@ -232,6 +235,12 @@ If HAEO schedules a battery discharge earlier than the prices justify, see [Trou
 ### Units are checked
 
 Every value in an interval row is paired with a unit string. The integration reads dollars, kWh, c/kWh and g-CO2e, and checks the unit string on each row. If a value arrives in anything else, that value is left unavailable and the mismatch is logged once at warning level, instead of publishing a number that is out by 100 or 1000. A daily or yesterday total with no usable amount is unavailable, not zero. All units have been constant in live responses so far, so this is a defensive check.
+
+### Customer metadata
+
+The integration reads `GET /v2/customer/metadata` once, then retries no sooner than hourly if that fails. It keeps six fields, `Region`, `ReadType`, `DLF`, `Tariff`, `Circuit` and `Suffix`, and discards the rest of the response where it is read (`NMI`, `LNSP`, `TNI`, `MDP` and `Jurisdiction`), so those never reach a sensor, attribute, diagnostic or log. Where the account has several circuits, the distinct values are joined in the order first seen.
+
+`DLF`, `Tariff`, `Circuit` and `Suffix` narrow a site, so their sensors are diagnostic and disabled by default. Enable them from the device page if you want them. Their values are not written to any log. A failing metadata endpoint leaves all six sensors unknown and does not affect pricing.
 
 ## Settlement quality and what the totals are worth
 
