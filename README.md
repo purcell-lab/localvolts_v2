@@ -305,6 +305,15 @@ The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.8.0
+
+This release adds two sensors, both requested on issue #31.
+
+- Flex Up Forecast carries Buy and Sell `flexUp` on one row, as `costsflexup` and `earningsflexup` in `$/kWh`, paired on `intervalEnd`. See [Single signal sensors](#single-signal-sensors).
+- P2P Settlement History keeps per day peer matched export totals for up to 14 days in Home Assistant storage, because the API serves only three days. A new install holds two days and gains one each day. See [Peer to peer settlement history](#peer-to-peer-settlement-history).
+
+New entities are added and none are removed or renamed. A restart is required. Minor rather than patch because new entities appear.
+
 ## Upgrading to 2.7.0
 
 This release closes the gaps found by auditing the integration against the official API guide.
