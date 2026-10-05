@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import logging
 from typing import Any
 
 import aiohttp
@@ -11,7 +12,10 @@ from .const import (
     API_INTERVAL_PATH,
     API_MARKET_STATS_PATH,
     API_VERSION_PATH,
+    EXPECTED_UNITS,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class LocalVoltsApiError(Exception):
@@ -82,6 +86,41 @@ def normalize_nmi(nmi: str) -> str:
     return "".join(nmi.split())
 
 
+def check_units(
+    record: dict[str, Any], reported: set[tuple[str, str]] | None = None
+) -> list[tuple[str, str, str]]:
+    """Blank every value whose unit is not the one the integration reads it in.
+
+    A value stated in a different unit would still parse as a number and look
+    plausible, 100 or 1000 times out. An unavailable value is better than that,
+    so each affected field is set to None, which every consumer already treats
+    as missing. A row that carries no unit string for a field is left alone,
+    because there is nothing to contradict the assumption.
+
+    Returns (field, unit, expected) for each field blanked on this row. Each
+    distinct (field, unit) pair is logged once at warning level via ``reported``.
+    """
+    blanked: list[tuple[str, str, str]] = []
+    for field, (units_key, expected) in EXPECTED_UNITS.items():
+        unit = record.get(units_key)
+        if unit is None or unit == expected:
+            continue
+        if record.get(field) is not None:
+            record[field] = None
+        blanked.append((field, str(unit), expected))
+        if reported is not None and (field, str(unit)) not in reported:
+            reported.add((field, str(unit)))
+            _LOGGER.warning(
+                "LocalVolts reports %s in %r, not the %r this integration reads. "
+                "The value is left unavailable rather than published at the wrong "
+                "scale.",
+                field,
+                str(unit),
+                expected,
+            )
+    return blanked
+
+
 def parse_interval_end(value: str) -> datetime:
     """Parse an API UTC timestamp into an aware datetime."""
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -109,6 +148,7 @@ class LocalVoltsClient:
         self._authorization = normalize_api_key(api_key)
         self._partner_id = partner_id.strip()
         self._base_url = base_url.rstrip("/")
+        self._reported_units: set[tuple[str, str]] = set()
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -222,6 +262,7 @@ class LocalVoltsClient:
                     raise LocalVoltsApiError(
                         f"LocalVolts returned invalid intervalEnd: {interval_end!r}"
                     ) from exc
+            check_units(item, self._reported_units)
             records.append(item)
         return records
 

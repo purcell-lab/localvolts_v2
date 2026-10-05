@@ -209,3 +209,25 @@ ATTR_NODES = "nodes"
 # a consumer ever needs the band over time.
 ATTR_SELL_PRICE = "sellPrice"
 
+
+# The unit each value field is paired with in every interval row, and the field
+# that carries it. The integration reads each value as these units and never
+# converts, so a row that states anything else cannot be read as a number.
+#
+# Every one of these was constant across 2282 rows over 95 hours on 2026-08-30.
+# The guide says a unit may be scaled ("Wh" or "kWh", the first being the
+# default) but documents no way to request it, and no scaled row has been seen.
+# Money is in dollars here, as the API returns it, not in cents.
+EXPECTED_UNITS: dict[str, tuple[str, str]] = {
+    "volume": ("volumeUnits", "kWh"),
+    "amountAll": ("amountAllUnits", "$"),
+    "amountVar": ("amountVarUnits", "$"),
+    "amountFixed": ("amountFixedUnits", "$"),
+    "amountDemand": ("amountDemandUnits", "$"),
+    "spotCost": ("spotCostUnits", "$"),
+    "matchedCost": ("matchedCostUnits", "$"),
+    "rateAllVar": ("rateAllVarUnits", "c/kWh"),
+    "flexUp": ("flexUnits", "c/kWh"),
+    "flexDown": ("flexUnits", "c/kWh"),
+    "emissions": ("emissionsUnits", "g-CO2e"),
+}
