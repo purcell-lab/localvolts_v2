@@ -174,6 +174,11 @@ ATTR_PROPORTION_P2P = "proportionP2P"
 ATTR_FLEX_UP = "flexUp"
 ATTR_FLEX_DOWN = "flexDown"
 ATTR_EMISSIONS = "emissions"
+# Proportion of zero emissions energy in the interval. The guide documents the
+# unit as a percent, but zeroEEUnits is never returned and every value observed
+# on 2026-08-30 sat between 0.023 and 1.0, so it is published as the API returns
+# it and read as a 0 to 1 fraction, the same convention as proportionP2P.
+ATTR_ZERO_EE = "zeroEE"
 
 # ISO 4217, required by Home Assistant for the monetary device class. LocalVolts
 # is an Australian retailer and the API reports amounts with a bare "$".
