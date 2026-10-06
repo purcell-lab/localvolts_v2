@@ -372,6 +372,19 @@ HAEO_FEEDS: tuple[HaeoFeedDefinition, ...] = (
         description="Flex up incentive rate, spot plus the network layer, a dispatch signal",
         value=lambda record: cents_to_dollars(record, "flexUp"),
     ),
+    # The export side of the same signal, so a consumer reading one
+    # {time, value} series per direction can move export as well as import.
+    # Requested on issue #40. Flex Up Forecast already carries both directions
+    # on one row for a consumer that wants them paired.
+    HaeoFeedDefinition(
+        key="sell_flex_up",
+        name="Sell Flex Up",
+        unit=UNIT_DOLLAR_PER_KWH,
+        direction=DIRECTION_SELL,
+        source="flexUp",
+        description="Flex up incentive rate on export, a dispatch signal",
+        value=lambda record: cents_to_dollars(record, "flexUp"),
+    ),
     HaeoFeedDefinition(
         key="sell_matched_cost",
         name="Sell P2P Matched Cost",
