@@ -306,6 +306,14 @@ The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.9.0
+
+This release adds one sensor, requested on issue #40.
+
+- Sell Flex Up publishes the Sell `flexUp` as a `{"time", "value"}` series in `$/kWh`, the export partner of Buy Flex Up, so a consumer reading one series per direction can move export as well as import. See [Single signal sensors](#single-signal-sensors).
+
+New entities are added and none are removed or renamed. A restart is required. Minor rather than patch because a new entity appears.
+
 ## Upgrading to 2.8.0
 
 This release adds two sensors, both requested on issue #31.
