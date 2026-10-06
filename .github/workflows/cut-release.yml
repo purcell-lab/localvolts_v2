@@ -1,0 +1,134 @@
+name: "Cut release"
+
+# Tags a release commit and publishes the GitHub release with
+# localvolts_v2.zip attached, which is what HACS installs from. Ported from
+# purcell-lab/nem_pd7day.
+#
+# Manual only. Bump manifest.json and add the README "Upgrading to X.Y.Z"
+# section in the release commit first; the workflow refuses to tag a commit
+# whose manifest does not carry the version, because HACS installs what the
+# manifest says, not what the tag says. It never moves an existing tag.
+#
+# A release created here with the workflow token does not trigger release.yml,
+# so this job attaches the ZIP itself. release.yml still covers a release
+# published by hand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the leading v, e.g. 2.9.0. Must match manifest.json at the target."
+        required: true
+        type: string
+      target:
+        description: "Commit sha or branch to tag. Defaults to the head of main."
+        required: false
+        default: main
+        type: string
+      notes:
+        description: "Release notes. Leave empty to use the README's 'Upgrading to X.Y.Z' section."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the release as a pre-release."
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  release:
+    name: "Tag and release v${{ inputs.version }}"
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: write
+    steps:
+      - name: "Checkout the target"
+        uses: "actions/checkout@v6"
+        with:
+          ref: ${{ inputs.target }}
+          fetch-depth: 0
+
+      - name: "Check the manifest carries the version and the tag is new"
+        shell: "bash"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          manifest=$(python3 -c 'import json; print(json.load(open("custom_components/localvolts_v2/manifest.json"))["version"])')
+          if [ "$manifest" != "$VERSION" ]; then
+            echo "::error::manifest.json says $manifest, not $VERSION. Bump it in the release commit first."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::tag v$VERSION already exists. Delete it explicitly if it is wrong; this workflow never moves a tag."
+            exit 1
+          fi
+
+      - name: "Write the release notes"
+        shell: "bash"
+        env:
+          NOTES: ${{ inputs.notes }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > /tmp/notes.md
+          else
+            # The README's "## Upgrading to X.Y.Z" section, retitled "## X.Y.Z"
+            # as on earlier releases.
+            python3 - "$VERSION" > /tmp/notes.md <<'EOF'
+          import sys
+          version = sys.argv[1]
+          heading = f"## Upgrading to {version}"
+          lines = open("README.md", encoding="utf-8").read().splitlines()
+          if heading not in lines:
+              sys.exit(f"README.md has no '{heading}' section; pass notes instead")
+          start = lines.index(heading) + 1
+          end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
+          print(f"## {version}\n")
+          print("\n".join(lines[start:end]).strip())
+          EOF
+          fi
+          echo "--- notes ---"; cat /tmp/notes.md
+
+      - name: "ZIP the integration directory"
+        shell: "bash"
+        run: |
+          cd "${{ github.workspace }}/custom_components/localvolts_v2"
+          zip localvolts_v2.zip -r ./
+
+      - name: "Create the annotated tag"
+        shell: "bash"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "v$VERSION" HEAD
+          git push origin "refs/tags/v$VERSION"
+
+      - name: "Publish the release with the ZIP attached"
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            "${{ github.workspace }}/custom_components/localvolts_v2/localvolts_v2.zip" \
+            --title "v$VERSION" \
+            --notes-file /tmp/notes.md \
+            --verify-tag \
+            ${{ inputs.prerelease && '--prerelease' || '' }}
+
+      - name: "Verify"
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/tags/v$VERSION" --jq '"\(.tag_name) draft=\(.draft) prerelease=\(.prerelease) assets=\(.assets|length) \(.name)"'
+          assets=$(gh api "repos/${{ github.repository }}/releases/tags/v$VERSION" --jq '.assets|length')
+          if [ "$assets" != "1" ]; then
+            echo "::error::expected exactly one asset (localvolts_v2.zip), found $assets"
+            exit 1
+          fi
