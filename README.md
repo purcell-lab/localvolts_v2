@@ -122,7 +122,7 @@ The peer matched rate for an interval, in $/kWh, is `matchedCost / (volume x pro
 
 ### Single signal sensors
 
-Thirteen further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
+Fourteen further sensors publish one field each, in the shape an energy optimizer's forecast parser expects: a `forecast` attribute holding a list of `{"time", "value"}` mappings plus a unit on the entity. Each is named for the API direction and field it reads, rather than for any particular consumer.
 
 Six of them are prices, three per direction. Every interval settles in two parts, the share a peer took and the share the market settled, so each direction has a peer matched rate, a spot rate, and the effective rate that blends them.
 
@@ -135,6 +135,7 @@ Six of them are prices, three per direction. Every interval settles in two parts
 | Buy Spot Rate | `$/kWh` | Buy | `spotCost` over unmatched volume |
 | Sell Spot Rate | `$/kWh` | Sell | `spotCost` over unmatched volume |
 | Buy Flex Up | `$/kWh` | Buy | `flexUp` |
+| Sell Flex Up | `$/kWh` | Sell | `flexUp` |
 | Buy P2P Proportion | `%` | Buy | `proportionP2P` |
 | Sell P2P Proportion | `%` | Sell | `proportionP2P` |
 | Buy P2P Matched Power | `kW` | Buy | `volume` times `proportionP2P` |
@@ -158,7 +159,7 @@ Points are stamped at the interval **start**, derived from `intervalEnd` less th
 
 `volume` is converted from metered kWh to average kW. Note that forward `volume` is a carry forward of past metering rather than a site capability, so it should not be wired to a power limit.
 
-`flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` if the opposite sign is wanted.
+`flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` or `Sell Flex Up` if the opposite sign is wanted.
 
 One more sensor, Flex Up Forecast, pairs both directions on the same row. Its `forecast` attribute is a list of `{"time", "costsflexup", "earningsflexup", "quality"}` mappings in `$/kWh`, where `costsflexup` is the Buy `flexUp` and `earningsflexup` is the Sell `flexUp`, paired on `intervalEnd`. `time` is the interval start, as on the other sensors, and `quality` is the Buy row's value. An interval with either side missing is left out. The state is the current Buy `flexUp`. The attribute is excluded from the recorder. It exists so a consumer that wants both directions reads one entity, and it was requested on issue #31.
 

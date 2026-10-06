@@ -324,6 +324,20 @@ async def test_flex_down_is_not_published_because_it_is_the_negation_of_flex_up(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_sell_flex_up_reads_the_sell_rows_in_dollars(hass):
+    """Each direction's flexUp gets its own series, read from its own rows."""
+    buy = _record("Buy", flexUp=8.1998)
+    sell = _record("Sell", flexUp=6.2709)
+    sensors = _sensors(hass, buy=buy, sell=sell, buy_forecast=[buy], sell_forecast=[sell])
+
+    assert sensors["sell_flex_up"].native_value == pytest.approx(0.062709)
+    assert sensors["buy_flex_up"].native_value == pytest.approx(0.081998)
+    point = sensors["sell_flex_up"].extra_state_attributes["forecast"][0]
+    assert point["value"] == pytest.approx(0.062709)
+    assert point["time"] == interval_start(sell).isoformat()
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_no_feed_sensor_records_a_bulk_or_prose_attribute(hass):
     """The same audit the rate sensors get, applied to these feeds.
 
