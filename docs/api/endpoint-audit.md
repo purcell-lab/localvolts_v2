@@ -24,7 +24,7 @@ change is listed here.
 | Forecast rows lack `matchedCost` and `quality` | Fixed in 2.7.0 (#32, issue #31) |
 | `/v2/customer/metadata` not called | Read once from 2.7.0 (#38, issue #18). Six fields are kept: `Region`, `ReadType`, `DLF`, `Tariff`, `Circuit` and `Suffix` |
 | `circuit` and `register` not read | Current behaviour pinned down by tests in 2.7.0 (#37, issue #20). No behaviour change |
-| `/v2/market/stats` undocumented | The sensor degrades cleanly and is marked undocumented from 2.7.0 (#36, issue #19) |
+| `/v2/market/stats` undocumented | The sensor degraded cleanly from 2.7.0 (#36). The call and the Market Participants sensor were then removed, since every live check returned zeros (issue #19) |
 | Demand fields not read | No change. Issue #21 is labelled `wontfix`: every demand field is zero on the tested site |
 
 ## Endpoint coverage
@@ -41,7 +41,9 @@ The guide documents three callable paths in total: `/version`, `/v2/customer/int
 
 One documented endpoint is unsurfaced: `/v2/customer/metadata`.
 
-### One call the integration makes that the guide does not document
+### One call the integration made that the guide does not document
+
+Removed after this audit (issue #19). Kept here as the record of why.
 
 | Path called | Where | Status in guide 0.9.8 |
 |---|---|---|

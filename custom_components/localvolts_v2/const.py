@@ -16,7 +16,6 @@ DEFAULT_SCAN_INTERVAL = timedelta(seconds=DEFAULT_SCAN_INTERVAL_SECONDS)
 
 API_BASE_URL = "https://api2.localvolts.com"
 API_INTERVAL_PATH = "/v2/customer/interval"
-API_MARKET_STATS_PATH = "/v2/market/stats"
 API_VERSION_PATH = "/version"
 API_METADATA_PATH = "/v2/customer/metadata"
 
@@ -223,17 +222,6 @@ ATTR_CALCULATION = "calculation"
 ATTR_CAVEAT = "caveat"
 ATTR_DESCRIPTION = "description"
 ATTR_DIRECTION = "direction"
-
-# The market snapshot's per node breakdown. Empty in every sample so far, but it
-# is an unbounded list from the API, and a market wide node list is not
-# something this entity's own history should carry.
-ATTR_NODES = "nodes"
-
-# The market snapshot's low, median and high sell price band. A nested mapping
-# cannot be charted or fed into long term statistics from history anyway, so
-# recording it buys nothing. Flattening it into scalars would be worth doing if
-# a consumer ever needs the band over time.
-ATTR_SELL_PRICE = "sellPrice"
 
 
 # The unit each value field is paired with in every interval row, and the field

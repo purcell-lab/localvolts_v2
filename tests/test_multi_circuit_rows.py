@@ -36,7 +36,6 @@ def _row(circuit, register, end, amount, rate, quality="Exp"):
 async def _poll(hass, rows):
     client = MagicMock()
     client.fetch_interval = AsyncMock(return_value=rows)
-    client.fetch_market_stats = AsyncMock(return_value=None)
     return await LocalVoltsCoordinator(hass, client, "1234567890")._async_update_data()
 
 

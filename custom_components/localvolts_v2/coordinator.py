@@ -39,7 +39,6 @@ class LocalVoltsData:
     sell_forecast: list[dict[str, Any]]
     buy_history: list[dict[str, Any]]
     sell_history: list[dict[str, Any]]
-    market_stats: dict[str, Any] | None
     last_update: datetime
     # Keyed "cost" and "earnings" to match the daily sensors they pair with.
     # Defaulted so a caller building a snapshot for one narrow purpose does not
@@ -108,7 +107,7 @@ def _current_record(
 
 
 class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
-    """Poll the v2 interval feed and the market statistics snapshot."""
+    """Poll the v2 interval feed."""
 
     def __init__(
         self,
@@ -255,13 +254,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.warning("LocalVolts P2P history update failed (non-fatal): %s", exc)
 
-        market_stats: dict[str, Any] | None
-        try:
-            market_stats = await self.client.fetch_market_stats()
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.warning("LocalVolts market statistics fetch failed (non-fatal): %s", exc)
-            market_stats = None
-
         return LocalVoltsData(
             current_buy=_current_record(buy_records, now),
             current_sell=_current_record(sell_records, now),
@@ -273,7 +265,6 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             sell_history=[
                 record for record in sell_records if record.get("quality") in SETTLED_QUALITIES
             ],
-            market_stats=market_stats,
             last_update=now,
             yesterday=yesterday,
         )

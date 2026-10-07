@@ -76,7 +76,6 @@ def _coordinator(hass) -> LocalVoltsCoordinator:
             sell_forecast=SELL,
             buy_history=[],
             sell_history=[],
-            market_stats=None,
             last_update=FETCHED,
         )
     )

@@ -66,7 +66,6 @@ def _coordinator(hass):
         sell_forecast=[_record("Sell", "Fcst")],
         buy_history=[buy],
         sell_history=[],
-        market_stats={"active_loads": 2, "active_generators": 1},
         last_update=datetime.now(timezone.utc),
     )
     coordinator.async_set_updated_data(data)
@@ -116,7 +115,6 @@ async def test_daily_cost_counts_only_the_intervals_it_summed(hass):
             sell_forecast=[],
             buy_history=today + earlier,
             sell_history=[],
-            market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
     )
@@ -155,7 +153,6 @@ def _money_coordinator(hass, *, buy_amounts, sell_amounts):
             sell_forecast=[],
             buy_history=leg("Buy", buy_amounts),
             sell_history=leg("Sell", sell_amounts),
-            market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
     )
@@ -335,7 +332,6 @@ async def test_daily_cost_is_unavailable_when_no_row_has_a_usable_amount(hass):
             sell_forecast=[],
             buy_history=rows,
             sell_history=[],
-            market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
     )
@@ -357,7 +353,6 @@ async def test_daily_cost_with_no_rows_today_is_still_zero(hass):
             sell_forecast=[],
             buy_history=[],
             sell_history=[],
-            market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
     )

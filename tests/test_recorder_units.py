@@ -97,7 +97,7 @@ def test_non_currency_entities_are_not_mapped(monkeypatch):
     units = _units(
         [
             _RegistryEntry("sensor.lv_current_buy_rate", DOMAIN, "c/kWh"),
-            _RegistryEntry("sensor.lv_market_participants", DOMAIN, "participants"),
+            _RegistryEntry("sensor.lv_export_p2p_proportion", DOMAIN, "%"),
             _RegistryEntry("sensor.lv_no_unit", DOMAIN, None),
         ],
         monkeypatch,

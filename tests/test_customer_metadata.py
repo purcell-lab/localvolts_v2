@@ -100,7 +100,6 @@ async def test_the_nmi_is_sent_as_the_only_argument():
 def _coordinator(hass, fetch):
     client = MagicMock()
     client.fetch_interval = AsyncMock(return_value=[])
-    client.fetch_market_stats = AsyncMock(return_value=None)
     client.fetch_metadata = fetch
     return LocalVoltsCoordinator(hass, client, "1234567890")
 

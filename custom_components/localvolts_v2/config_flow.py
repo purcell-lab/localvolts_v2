@@ -38,6 +38,8 @@ class LocalVoltsV2ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle LocalVolts v2 setup through the Home Assistant UI."""
 
     VERSION = 2
+    # 2.2 retired the Market Participants entity; see async_migrate_entry.
+    MINOR_VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

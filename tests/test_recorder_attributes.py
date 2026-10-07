@@ -254,13 +254,6 @@ async def _all_entities(hass):
             sell_forecast=[sell],
             buy_history=[buy],
             sell_history=[sell],
-            market_stats={
-                "active_loads": 3,
-                "active_generators": 2,
-                "sellPrice": {"low": 0, "median": 0, "high": 0},
-                "nodes": [],
-                "updated": "08/08/2026 09:55:51 AM GMT+10",
-            },
             last_update=datetime.now(timezone.utc),
             # Populated so the audit actually inspects the reconciliation
             # attributes. Left empty, those entities publish nothing and the

@@ -1,6 +1,6 @@
 # LocalVolts v2 for Home Assistant
 
-A Home Assistant custom integration for LocalVolts interval pricing, costs, peer to peer information, market statistics, and a forecast chart rendered locally.
+A Home Assistant custom integration for LocalVolts interval pricing, costs, peer to peer information, and a forecast chart rendered locally.
 
 ![Two panel forecast chart, six price signals above and volumes with matched share below, elapsed intervals solid and forward ones faded either side of a now marker](docs/forecast_chart.png)
 
@@ -58,7 +58,6 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
-| Market Participants | `active_loads + active_generators` from the market-wide P2P snapshot. The full market statistics object is in attributes. Undocumented: `/v2/market/stats` is not in the API guide, so this sensor has no stated contract and can become unavailable or be withdrawn without notice. It is unavailable whenever the snapshot cannot be fetched. |
 | NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
 | Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
 | Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
@@ -253,10 +252,11 @@ The official guide documents three callable paths in total, plus one legacy path
 | `GET /v2/customer/metadata` | Yes, once at start up. Six of its fields are kept, see [Customer metadata](#customer-metadata) |
 | `GET /v1/customer/interval` | No, by decision. See [why v1 was dropped](#why-v1-was-dropped) |
 
-The integration also calls `GET /v2/market/stats`, which the guide does not document at any
-version. It was found by probing and it responds, but it is unsupported, and on a live check on
-2026-08-30 every numeric field in it was zero with an empty node list. One sensor, Market
-Participants, depends on it.
+Earlier releases also called `GET /v2/market/stats`, which the guide does not document at any
+version. It was found by probing and it responds, but every numeric field in it was zero with an
+empty node list on every live check, from 2026-08-30 through 2026-10-08, so the call and the Market
+Participants sensor it fed were removed (issue #19). The entity is deleted from the registry on
+upgrade.
 
 Every row of that table was confirmed against the production API on 2026-08-30. `/v2/market/interval`,
 which the guide removed at version 0.9.0, returns HTTP 404. `/v2/customer/metadata` returns one row

@@ -207,7 +207,6 @@ def _polling_coordinator(hass, rows):
 
     client = MagicMock()
     client.fetch_interval = AsyncMock(return_value=rows)
-    client.fetch_market_stats = AsyncMock(return_value=None)
     client.fetch_metadata = AsyncMock(return_value={})
     return LocalVoltsCoordinator(hass, client, "1234567890", entry_id=ENTRY_ID)
 

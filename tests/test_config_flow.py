@@ -290,3 +290,61 @@ async def test_migration_deletes_the_retired_comparison_entity(hass):
 
     assert registry.async_get(orphan.entity_id) is None
     assert registry.async_get(survivor.entity_id) is not None, "only the orphan goes"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_migration_deletes_the_retired_market_participants_entity(hass):
+    """2.2 drops Market Participants and its undocumented source (#19)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        minor_version=1,
+        unique_id=f"{DOMAIN}_1234567890",
+        data={CONF_API_KEY: "apikey key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
+    )
+    entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+    orphan = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_market_participants",
+        config_entry=entry,
+        suggested_object_id="localvolts_v2_market_participants",
+    )
+    survivor = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{entry.entry_id}_current_sell_rate",
+        config_entry=entry,
+        suggested_object_id="localvolts_v2_current_sell_rate",
+    )
+
+    assert await async_migrate_entry(hass, entry) is True
+    await hass.async_block_till_done()
+
+    assert entry.minor_version == 2
+    assert registry.async_get(orphan.entity_id) is None
+    assert registry.async_get(survivor.entity_id) is not None, "only the orphan goes"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_a_version_1_entry_reaches_2_2_in_one_pass(hass):
+    """Both retirements apply to an entry that skipped 2.1 entirely."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        unique_id=f"{DOMAIN}_1234567890",
+        data={CONF_API_KEY: "apikey key", CONF_PARTNER_ID: "partner", CONF_NMI: "1234567890"},
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    orphan = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{entry.entry_id}_market_participants", config_entry=entry
+    )
+
+    assert await async_migrate_entry(hass, entry) is True
+    await hass.async_block_till_done()
+
+    assert (entry.version, entry.minor_version) == (2, 2)
+    assert registry.async_get(orphan.entity_id) is None
