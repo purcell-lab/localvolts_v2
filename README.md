@@ -117,7 +117,7 @@ For comparing a month or a year of this against a real invoice, and for what the
 
 The Current Buy Rate and Current Sell Rate forecast attributes contain compact objects with `intervalEnd`, `quality`, `rateAllVar`, `volume`, `amountAll`, `proportionP2P`, `flexUp`, `flexDown` and `matchedCost` for use in templates and automations. `intervalEnd` is the end of the interval; the rows carry no `time` key, because on the single signal sensors below `time` means the interval start.
 
-The peer matched rate for an interval, in $/kWh, is `matchedCost / (volume x proportionP2P)`. `matchedCost` is rounded to eight decimal places because off peak intervals are worth a fraction of a cent. `quality` reads `Fcst` on every row today, since the attribute holds forward rows only.
+The peer matched rate for an interval, in $/kWh, is `matchedCost / (volume x proportionP2P)`. `matchedCost` and `proportionP2P` are rounded to eight decimal places, because off peak intervals are worth a fraction of a cent and a light match is a proportion of a few millionths. At fewer places a light match reads as zero here while Sell P2P Matched Cost still prices it. `quality` reads `Fcst` on every row today, since the attribute holds forward rows only.
 
 ### Single signal sensors
 
@@ -157,6 +157,17 @@ Prices are in `$/kWh`, not the API's `c/kWh`. Optimizers that accept a currency 
 Points are stamped at the interval **start**, derived from `intervalEnd` less the interval duration, and each sensor declares `interpolation_mode: previous`. A value stamped at its own interval end would otherwise take effect one interval late.
 
 `volume` is converted from metered kWh to average kW. Note that forward `volume` is a carry forward of past metering rather than a site capability, so it should not be wired to a power limit.
+
+Every single signal sensor, and Flex Up Forecast below, also carries where its forecast came from:
+
+| Attribute | Meaning |
+|---|---|
+| `last_update` | When the coordinator fetched the rows, the same on every entity of the entry |
+| `interval_minutes` | Interval length of the source rows, 5 today |
+| `forecast_start` | Start of the earliest source row |
+| `forecast_end` | End of the latest source row |
+
+Use `last_update`, not the entity's `last_updated`, to tell which of two readings is newer. Home Assistant moves `last_updated` only when the state or an attribute changes, so an entity whose values did not change keeps an older stamp while its siblings move, although all of them were written from the same poll. The window covers every source row, including rows that published no point because the value is undefined, such as a matched rate on an interval where nothing matched. A time inside the window with no point means no value for that interval, and a time after `forecast_end` is past the forecast. All four are excluded from the recorder.
 
 `flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` or `Sell Flex Up` if the opposite sign is wanted.
 

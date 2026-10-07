@@ -127,7 +127,11 @@ FORECAST_FIELD_DIGITS: dict[str, int] = {
     "rateAllVar": 4,
     "volume": 5,
     "amountAll": 5,
-    "proportionP2P": 4,
+    # Eight places, as on a reconciled day. A light match is a proportion of a
+    # few millionths, and at four places it read as 0.0 on the rate sensors
+    # while the matched rate feed, which divides the unrounded values, still
+    # priced the interval (#47).
+    "proportionP2P": 8,
     "flexUp": 4,
     "flexDown": 4,
     # matchedCost is a dollar amount for the interval and is small: a real

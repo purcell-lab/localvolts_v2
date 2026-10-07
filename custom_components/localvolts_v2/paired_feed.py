@@ -37,9 +37,11 @@ from .const import (
 from .coordinator import LocalVoltsCoordinator
 from .haeo_feed import (
     INTERPOLATION_PREVIOUS,
+    PROVENANCE_ATTRIBUTES,
     UNIT_DOLLAR_PER_KWH,
     cents_to_dollars,
     interval_start,
+    snapshot_provenance,
 )
 
 COSTS_KEY = "costsflexup"
@@ -96,7 +98,7 @@ class LocalVoltsFlexUpForecastSensor(
     # history, and excluding it keeps the state inside the recorder's size limit.
     _unrecorded_attributes = frozenset(
         {"forecast", "interpolation_mode", "source_field", "description"}
-    )
+    ) | PROVENANCE_ATTRIBUTES
 
     def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -132,6 +134,16 @@ class LocalVoltsFlexUpForecastSensor(
         rows = (
             pair_flex_up(data.buy_forecast, data.sell_forecast) if data is not None else []
         )
+        # The horizon is the intervals both directions cover, since a row needs
+        # both sides to be published.
+        shared: list[dict[str, Any]] = []
+        if data is not None:
+            sell_ends = {record.get("intervalEnd") for record in data.sell_forecast}
+            shared = [
+                record
+                for record in data.buy_forecast
+                if record.get("intervalEnd") in sell_ends
+            ]
         return {
             "interpolation_mode": INTERPOLATION_PREVIOUS,
             "source_field": "flexUp",
@@ -141,4 +153,5 @@ class LocalVoltsFlexUpForecastSensor(
             ),
             "forecast": rows,
             "forecast_entries": len(rows),
+            **snapshot_provenance(None if data is None else data.last_update, shared),
         }

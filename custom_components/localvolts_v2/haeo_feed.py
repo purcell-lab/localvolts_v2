@@ -112,6 +112,55 @@ def cents_to_dollars(record: dict[str, Any], key: str) -> float | None:
     return None if value is None else value / CENTS_PER_DOLLAR
 
 
+# Provenance attributes. They change on every poll, so they are excluded from
+# the recorder along with the forecast they describe.
+ATTR_LAST_UPDATE = "last_update"
+ATTR_INTERVAL_MINUTES = "interval_minutes"
+ATTR_FORECAST_START = "forecast_start"
+ATTR_FORECAST_END = "forecast_end"
+PROVENANCE_ATTRIBUTES = frozenset(
+    {ATTR_LAST_UPDATE, ATTR_INTERVAL_MINUTES, ATTR_FORECAST_START, ATTR_FORECAST_END}
+)
+
+
+def snapshot_provenance(
+    last_update: datetime | None, records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Describe the coordinator snapshot a forecast was built from.
+
+    ``last_update`` is when the coordinator fetched the rows, the same for every
+    entity on the entry, so a consumer can tell which of two readings is newer
+    without relying on the entity's ``last_updated``. Home Assistant moves that
+    only when the state or an attribute changes, so an entity whose values
+    happened not to change keeps an older ``last_updated`` while its siblings
+    move, although every one of them was written from the same poll.
+
+    ``forecast_start`` and ``forecast_end`` bound the source rows, including
+    rows that published no point because their value is undefined, such as a
+    matched rate on an interval where nothing matched. A missing point inside
+    the window is therefore "no value for this interval", and a time after
+    ``forecast_end`` is "past the forecast".
+    """
+    starts: list[datetime] = []
+    ends: list[datetime] = []
+    minutes: float | None = None
+    for record in records:
+        start = interval_start(record)
+        if start is None:
+            continue
+        hours = interval_hours(record)
+        starts.append(start)
+        ends.append(start + timedelta(hours=hours))
+        if minutes is None:
+            minutes = hours * MINUTES_PER_HOUR
+    return {
+        ATTR_LAST_UPDATE: None if last_update is None else last_update.isoformat(),
+        ATTR_INTERVAL_MINUTES: round(minutes or DEFAULT_INTERVAL_MINUTES),
+        ATTR_FORECAST_START: min(starts).isoformat() if starts else None,
+        ATTR_FORECAST_END: max(ends).isoformat() if ends else None,
+    }
+
+
 def volume_power(record: dict[str, Any]) -> float | None:
     """Convert metered interval energy in kWh to average power in kW."""
     volume = _as_float(record, "volume")
@@ -198,6 +247,9 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
     # change once the entity exists, so recording them would write the same
     # strings to history on every update. Only the value and forecast_entries
     # are left recorded.
+    #
+    # The provenance attributes change on every poll and describe the forecast,
+    # so they follow it out of the recorder.
     _unrecorded_attributes = frozenset(
         {
             "forecast",
@@ -206,7 +258,7 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
             "source_field",
             "description",
         }
-    )
+    ) | PROVENANCE_ATTRIBUTES
 
     def __init__(
         self,
@@ -269,8 +321,9 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the HAEO forecast payload plus provenance for this signal."""
+        records = self._forecast()
         points: list[dict[str, Any]] = []
-        for record in self._forecast():
+        for record in records:
             start = interval_start(record)
             value = self._definition.value(record)
             if start is None or value is None:
@@ -286,6 +339,10 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
         }
         base["forecast"] = points
         base["forecast_entries"] = len(points)
+        data = self.coordinator.data
+        base.update(
+            snapshot_provenance(None if data is None else data.last_update, records)
+        )
         return base
 
 
