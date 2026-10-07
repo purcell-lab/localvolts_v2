@@ -317,6 +317,16 @@ The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
 
+## Upgrading to 2.10.0
+
+This release answers issues #47 and #19.
+
+- Every single signal sensor and Flex Up Forecast now carries `last_update`, the coordinator's fetch time, plus `interval_minutes`, `forecast_start` and `forecast_end`, which bound the source rows including intervals that published no point. Order readings by `last_update` rather than `last_updated`. All four are excluded from the recorder, and these entities now update together on every poll. See [Single signal sensors](#single-signal-sensors).
+- `proportionP2P` on the Current Buy Rate and Current Sell Rate forecast rows keeps eight decimal places instead of four, so a light peer match no longer reads as zero there while Sell P2P Matched Cost still prices it.
+- Market Participants is removed, along with the call to the undocumented `/v2/market/stats`, which returned zeros on every live check. The entity is deleted from the registry when the config entry migrates to version 2.2 on first start.
+
+One entity is removed and none are renamed. A restart is required. Minor rather than patch because attributes are added and an entity is retired.
+
 ## Upgrading to 2.9.0
 
 This release adds one sensor, requested on issue #40.
