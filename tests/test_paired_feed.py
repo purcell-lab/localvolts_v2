@@ -105,7 +105,6 @@ def _sensor(hass, buy_forecast, sell_forecast, current_buy=None):
             sell_forecast=sell_forecast,
             buy_history=[],
             sell_history=[],
-            market_stats=None,
             last_update=datetime.now(timezone.utc),
         )
     )

@@ -1,6 +1,6 @@
 refresh_forecast:
   name: Refresh forecast
-  description: Immediately fetch fresh LocalVolts interval and market statistics data for one or all configured NMIs.
+  description: Immediately fetch fresh LocalVolts interval data for one or all configured NMIs.
   fields:
     entry_id:
       name: Entry ID

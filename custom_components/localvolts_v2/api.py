@@ -3,8 +3,9 @@
 The official reference is the LocalVolts API Guide 0.9.8, committed at
 ``docs/api/``. It documents three callable paths: ``/version``,
 ``/v2/customer/interval`` and ``/v2/customer/metadata``. This client implements
-the first two. ``/v2/market/stats``, which ``fetch_market_stats`` calls, is not
-in the guide at any version and was found by probing.
+all three. ``/v2/market/stats``, which earlier releases also called, is not in
+the guide at any version and returned zeros on every live check, so it is no
+longer used.
 
 Several behaviours this client relies on are field measurements rather than
 documented promises, and are marked as such where they appear.
@@ -21,7 +22,6 @@ import aiohttp
 from .const import (
     API_BASE_URL,
     API_INTERVAL_PATH,
-    API_MARKET_STATS_PATH,
     API_METADATA_PATH,
     API_VERSION_PATH,
     EXPECTED_UNITS,
@@ -278,16 +278,6 @@ class LocalVoltsClient:
             check_units(item, self._reported_units)
             records.append(item)
         return records
-
-    async def fetch_market_stats(self) -> dict[str, Any]:
-        """Fetch the real-time, market-wide P2P statistics snapshot."""
-        payload = await self._async_get_json(API_MARKET_STATS_PATH)
-        if not isinstance(payload, dict):
-            raise LocalVoltsApiError("LocalVolts market statistics response was not an object")
-        result = payload.get("objResult", payload)
-        if not isinstance(result, dict):
-            raise LocalVoltsApiError("LocalVolts market statistics result was not an object")
-        return result
 
     async def fetch_metadata(self, nmi: str) -> dict[str, str]:
         """Fetch customer metadata, keeping only the fields in METADATA_FIELDS.

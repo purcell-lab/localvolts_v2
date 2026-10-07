@@ -187,7 +187,7 @@ def _async_normalize_nmi_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
-    """Drop the second credential pair and the entity that needed it.
+    """Bring an entry up to version 2.2, deleting entities that were retired.
 
     Version 1 entries could carry a separate v1 key and partner id for a daily
     cost comparison sensor. Both are gone, so the entry is reduced to the three
@@ -216,6 +216,20 @@ async def async_migrate_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry)
             _LOGGER.debug("Removed the retired daily cost comparison entity %s", orphan)
 
         _LOGGER.debug("Migrated LocalVolts entry to version 2, single credential pair")
+
+    if entry.version == 2 and entry.minor_version < 2:
+        # 2.2 retires Market Participants. Its source, /v2/market/stats, is not
+        # in the API guide and returned zeros on every live check (#19), so the
+        # call and the entity are gone, and the entity is deleted for the same
+        # reason as the one above.
+        registry = er.async_get(hass)
+        orphan = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_market_participants"
+        )
+        if orphan is not None:
+            registry.async_remove(orphan)
+            _LOGGER.debug("Removed the retired market participants entity %s", orphan)
+        hass.config_entries.async_update_entry(entry, minor_version=2)
 
     return True
 

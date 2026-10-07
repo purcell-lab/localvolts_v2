@@ -1,4 +1,4 @@
-"""Sensor platform for LocalVolts v2 interval and market data."""
+"""Sensor platform for LocalVolts v2 interval data."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -39,8 +39,6 @@ from .const import (
     ATTR_INTERVAL_DURATION,
     ATTR_INTERVAL_END,
     ATTR_LAST_UPDATE,
-    ATTR_NODES,
-    ATTR_SELL_PRICE,
     ATTR_MATCHED_COST,
     ATTR_PROPORTION_P2P,
     ATTR_QUALITY,
@@ -173,7 +171,6 @@ async def async_setup_entry(
             coordinator, entry, key="earnings", label="Yesterday Earnings"
         ),
         LocalVoltsP2PProportionSensor(coordinator, entry),
-        LocalVoltsMarketStatsSensor(coordinator, entry),
         *(
             LocalVoltsMetadataSensor(
                 coordinator, entry, field=field, name=name, key=key
@@ -577,55 +574,6 @@ class LocalVoltsMetadataSensor(LocalVoltsSensorBase):
         """Return the field, or None until the metadata has been read."""
         metadata = self.coordinator.metadata
         return None if metadata is None else metadata.get(self._field)
-
-
-class LocalVoltsMarketStatsSensor(LocalVoltsSensorBase):
-    """Market-wide LocalVolts P2P participation snapshot."""
-
-    # nodes is an unbounded per node list from the API. It has been empty in
-    # every sample so far, but recording it would tie this entity's attribute
-    # size to how many nodes the market reports.
-    _unrecorded_attributes = frozenset({ATTR_NODES, ATTR_SELL_PRICE})
-
-    _attr_native_unit_of_measurement = "participants"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{entry.entry_id}_market_participants"
-        self._attr_name = "Market Participants"
-
-    @property
-    def available(self) -> bool:
-        """Report unavailable when the snapshot could not be fetched.
-
-        /v2/market/stats is not in the API guide, so it can fail or be withdrawn
-        without notice. When that happens the coordinator sets the snapshot to
-        None, and the entity should say so rather than show unknown or a number.
-        """
-        stats = self.coordinator.data.market_stats if self.coordinator.data else None
-        return super().available and stats is not None
-
-    @property
-    def native_value(self) -> float | None:
-        """Return active loads plus active generators when both were reported.
-
-        A snapshot that lacks either count is not a count of zero participants,
-        so it reads as unknown instead of silently defaulting the missing one.
-        """
-        stats = self.coordinator.data.market_stats if self.coordinator.data else None
-        if not isinstance(stats, dict):
-            return None
-        try:
-            return float(stats["active_loads"]) + float(stats["active_generators"])
-        except (KeyError, TypeError, ValueError):
-            return None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the market statistics snapshot as the API returned it."""
-        stats = self.coordinator.data.market_stats if self.coordinator.data else None
-        return dict(stats) if stats else {}
 
 
 class LocalVoltsYesterdayReconciliationSensor(LocalVoltsSensorBase):
