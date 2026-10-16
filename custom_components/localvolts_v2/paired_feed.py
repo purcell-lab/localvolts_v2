@@ -153,5 +153,9 @@ class LocalVoltsFlexUpForecastSensor(
             ),
             "forecast": rows,
             "forecast_entries": len(rows),
-            **snapshot_provenance(None if data is None else data.last_update, shared),
+            **snapshot_provenance(
+                None if data is None else data.last_update,
+                shared,
+                None if data is None else data.source_updated,
+            ),
         }

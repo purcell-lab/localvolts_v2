@@ -118,13 +118,22 @@ ATTR_LAST_UPDATE = "last_update"
 ATTR_INTERVAL_MINUTES = "interval_minutes"
 ATTR_FORECAST_START = "forecast_start"
 ATTR_FORECAST_END = "forecast_end"
+ATTR_SOURCE_UPDATED = "source_updated"
 PROVENANCE_ATTRIBUTES = frozenset(
-    {ATTR_LAST_UPDATE, ATTR_INTERVAL_MINUTES, ATTR_FORECAST_START, ATTR_FORECAST_END}
+    {
+        ATTR_LAST_UPDATE,
+        ATTR_SOURCE_UPDATED,
+        ATTR_INTERVAL_MINUTES,
+        ATTR_FORECAST_START,
+        ATTR_FORECAST_END,
+    }
 )
 
 
 def snapshot_provenance(
-    last_update: datetime | None, records: list[dict[str, Any]]
+    last_update: datetime | None,
+    records: list[dict[str, Any]],
+    source_updated: datetime | None = None,
 ) -> dict[str, Any]:
     """Describe the coordinator snapshot a forecast was built from.
 
@@ -134,6 +143,11 @@ def snapshot_provenance(
     only when the state or an attribute changes, so an entity whose values
     happened not to change keeps an older ``last_updated`` while its siblings
     move, although every one of them was written from the same poll.
+
+    ``source_updated`` is when LocalVolts last rebuilt the rows, the newest
+    ``lastUpdate`` they carry. A fetch can succeed and still return rows that
+    have not been refreshed for hours, so ``last_update`` alone does not show
+    a stalled provider; the gap between the two does.
 
     ``forecast_start`` and ``forecast_end`` bound the source rows, including
     rows that published no point because their value is undefined, such as a
@@ -155,6 +169,9 @@ def snapshot_provenance(
             minutes = hours * MINUTES_PER_HOUR
     return {
         ATTR_LAST_UPDATE: None if last_update is None else last_update.isoformat(),
+        ATTR_SOURCE_UPDATED: (
+            None if source_updated is None else source_updated.isoformat()
+        ),
         ATTR_INTERVAL_MINUTES: round(minutes or DEFAULT_INTERVAL_MINUTES),
         ATTR_FORECAST_START: min(starts).isoformat() if starts else None,
         ATTR_FORECAST_END: max(ends).isoformat() if ends else None,
@@ -341,7 +358,11 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
         base["forecast_entries"] = len(points)
         data = self.coordinator.data
         base.update(
-            snapshot_provenance(None if data is None else data.last_update, records)
+            snapshot_provenance(
+                None if data is None else data.last_update,
+                records,
+                None if data is None else data.source_updated,
+            )
         )
         return base
 

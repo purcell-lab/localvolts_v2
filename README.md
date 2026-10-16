@@ -58,6 +58,7 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
+| Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the rows, with that time in `source_updated`. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. It updates on each poll, so it moves in steps of the poll interval. |
 | NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
 | Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
 | Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
@@ -158,16 +159,17 @@ Points are stamped at the interval **start**, derived from `intervalEnd` less th
 
 `volume` is converted from metered kWh to average kW. Note that forward `volume` is a carry forward of past metering rather than a site capability, so it should not be wired to a power limit.
 
-Every single signal sensor, and Flex Up Forecast below, also carries where its forecast came from:
+Every single signal sensor, and Flex Up Forecast below, also carries where its forecast came from and how fresh it is:
 
 | Attribute | Meaning |
 |---|---|
 | `last_update` | When the coordinator fetched the rows, the same on every entity of the entry |
+| `source_updated` | When LocalVolts last rebuilt the rows, the newest `lastUpdate` they carry |
 | `interval_minutes` | Interval length of the source rows, 5 today |
 | `forecast_start` | Start of the earliest source row |
 | `forecast_end` | End of the latest source row |
 
-Use `last_update`, not the entity's `last_updated`, to tell which of two readings is newer. Home Assistant moves `last_updated` only when the state or an attribute changes, so an entity whose values did not change keeps an older stamp while its siblings move, although all of them were written from the same poll. The window covers every source row, including rows that published no point because the value is undefined, such as a matched rate on an interval where nothing matched. A time inside the window with no point means no value for that interval, and a time after `forecast_end` is past the forecast. All four are excluded from the recorder.
+Use `last_update`, not the entity's `last_updated`, to tell which of two readings is newer. Home Assistant moves `last_updated` only when the state or an attribute changes, so an entity whose values did not change keeps an older stamp while its siblings move, although all of them were written from the same poll. The window covers every source row, including rows that published no point because the value is undefined, such as a matched rate on an interval where nothing matched. A time inside the window with no point means no value for that interval, and a time after `forecast_end` is past the forecast. A gap between `last_update` and `source_updated` means LocalVolts is answering with data it has not refreshed; the Data Age sensor reports that gap as a number. All five are excluded from the recorder.
 
 `flexDown` is not published. It was the exact negation of `flexUp` in all 1730 records of the validation window, so negate `Buy Flex Up` or `Sell Flex Up` if the opposite sign is wanted.
 

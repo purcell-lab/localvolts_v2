@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -171,6 +171,7 @@ async def async_setup_entry(
             coordinator, entry, key="earnings", label="Yesterday Earnings"
         ),
         LocalVoltsP2PProportionSensor(coordinator, entry),
+        LocalVoltsDataAgeSensor(coordinator, entry),
         *(
             LocalVoltsMetadataSensor(
                 coordinator, entry, field=field, name=name, key=key
@@ -540,6 +541,55 @@ class LocalVoltsP2PProportionSensor(LocalVoltsSensorBase):
         return {
             ATTR_DIRECTION: DIRECTION_SELL,
             ATTR_DESCRIPTION: "Fraction of current export volume matched P2P",
+        }
+
+
+class LocalVoltsDataAgeSensor(LocalVoltsSensorBase):
+    """Minutes since LocalVolts last rebuilt the data, from the rows' lastUpdate.
+
+    A poll can succeed and still return rows that have not been refreshed for
+    hours. When that happens the rate sensors keep moving, because they step
+    through an old forecast one interval at a time, so nothing else shows that
+    the provider has stalled. This is the number to alert on.
+
+    The age is worked out when the coordinator updates, so it moves in steps of
+    the poll interval, and it keeps growing while fetches fail and stale data
+    is served.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
+    # Both change on every poll, and the state already carries the age.
+    _unrecorded_attributes = frozenset({"source_updated", "last_update"})
+
+    def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_data_age"
+        self._attr_name = "Data Age"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the minutes since the newest lastUpdate, or None without one."""
+        data = self.coordinator.data
+        if data is None or data.source_updated is None:
+            return None
+        age = dt_util.utcnow() - data.source_updated
+        return round(max(age.total_seconds(), 0.0) / 60.0, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return when LocalVolts rebuilt the data and when it was fetched."""
+        data = self.coordinator.data
+        if data is None:
+            return {}
+        return {
+            "source_updated": (
+                None if data.source_updated is None else data.source_updated.isoformat()
+            ),
+            "last_update": data.last_update.isoformat(),
         }
 
 

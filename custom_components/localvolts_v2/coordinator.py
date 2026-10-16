@@ -44,6 +44,27 @@ class LocalVoltsData:
     # Defaulted so a caller building a snapshot for one narrow purpose does not
     # have to fabricate a reconciliation it will never read.
     yesterday: dict[str, DayReconciliation] = field(default_factory=dict)
+    # The newest lastUpdate stamped on any row of the fetch, which is when
+    # LocalVolts last rebuilt the data. last_update above is only when this
+    # integration fetched it, and a fetch can succeed while returning rows
+    # LocalVolts has not refreshed for hours. None when no row carried a stamp.
+    source_updated: datetime | None = None
+
+
+def _source_updated(records: list[dict[str, Any]]) -> datetime | None:
+    """Return the newest lastUpdate across the rows, as a UTC-aware datetime."""
+    newest: datetime | None = None
+    for record in records:
+        value = record.get("lastUpdate")
+        if not value:
+            continue
+        try:
+            stamp = parse_interval_end(str(value))
+        except (TypeError, ValueError):
+            continue
+        if newest is None or stamp > newest:
+            newest = stamp
+    return newest
 
 
 def _interval_duration(record: dict[str, Any]) -> timedelta:
@@ -267,4 +288,5 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             ],
             last_update=now,
             yesterday=yesterday,
+            source_updated=_source_updated(records),
         )
