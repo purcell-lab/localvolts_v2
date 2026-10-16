@@ -91,9 +91,11 @@ class FetchHealth:
 # not to fill an attribute with HTML.
 ERROR_SUMMARY_LENGTH = 200
 
-# LocalVolts rebuilds the rows every few minutes when it is healthy. Three
-# missed five minute rebuilds is past jitter and worth reporting.
-SOURCE_STALE_AFTER = timedelta(minutes=15)
+# LocalVolts rebuilds the rows at about :02 and :32, so a healthy source reads
+# up to about half an hour old: measured on one household over 30 hours to
+# 16 October, 0 to 28.4 minutes, with 43 of 509 samples over 15. An hour is
+# two missed rebuilds, and matches the threshold Nimbus uses.
+SOURCE_STALE_AFTER = timedelta(minutes=60)
 
 STATUS_OK = "ok"
 STATUS_NO_DATA = "no_data"
