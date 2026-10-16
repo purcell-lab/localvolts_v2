@@ -122,10 +122,9 @@ async def test_data_age_is_minutes_since_localvolts_rebuilt_the_rows(hass):
         assert sensor.native_value == pytest.approx(131.8)
 
     assert sensor.native_unit_of_measurement == "min"
-    assert sensor.extra_state_attributes == {
-        "source_updated": STALE.isoformat(),
-        "last_update": FETCHED.isoformat(),
-    }
+    attributes = sensor.extra_state_attributes
+    assert attributes["source_updated"] == STALE.isoformat()
+    assert attributes["last_update"] == FETCHED.isoformat()
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

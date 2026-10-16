@@ -64,7 +64,7 @@ from .const import (
     ATTR_SETTLED_INTERVAL_COUNT,
     STATE_NO_DATA,
 )
-from .coordinator import LocalVoltsCoordinator
+from .coordinator import LocalVoltsCoordinator, freshness_status
 from .haeo_feed import build_haeo_feed_sensors
 from .p2p_history_sensor import LocalVoltsP2PHistorySensor
 from .paired_feed import LocalVoltsFlexUpForecastSensor
@@ -562,8 +562,11 @@ class LocalVoltsDataAgeSensor(LocalVoltsSensorBase):
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 0
-    # Both change on every poll, and the state already carries the age.
-    _unrecorded_attributes = frozenset({"source_updated", "last_update"})
+    # These change on every poll or carry free text. status is kept, since a
+    # history of it is what shows when and why the data went stale.
+    _unrecorded_attributes = frozenset(
+        {"source_updated", "last_update", "last_success", "last_error"}
+    )
 
     def __init__(self, coordinator: LocalVoltsCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
@@ -581,15 +584,20 @@ class LocalVoltsDataAgeSensor(LocalVoltsSensorBase):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return when LocalVolts rebuilt the data and when it was fetched."""
+        """Return why the data is stale, if it is, and the fetch health behind it."""
         data = self.coordinator.data
-        if data is None:
-            return {}
+        health = self.coordinator.fetch_health
         return {
+            "status": freshness_status(data, health, dt_util.utcnow()),
             "source_updated": (
-                None if data.source_updated is None else data.source_updated.isoformat()
+                None
+                if data is None or data.source_updated is None
+                else data.source_updated.isoformat()
             ),
-            "last_update": data.last_update.isoformat(),
+            "last_update": None if data is None else data.last_update.isoformat(),
+            "last_success": health.as_dict()["last_success"],
+            "consecutive_failures": health.consecutive_failures,
+            "last_error": health.last_error,
         }
 
 

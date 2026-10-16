@@ -51,6 +51,74 @@ class LocalVoltsData:
     source_updated: datetime | None = None
 
 
+@dataclass(slots=True)
+class FetchHealth:
+    """How the interval fetches have gone, kept separately from the data.
+
+    Stale data has two causes that look the same from the sensors: LocalVolts
+    answering with rows it has not rebuilt, and this integration failing to
+    reach LocalVolts and serving its last good data. source_updated covers the
+    first; this covers the second.
+    """
+
+    last_attempt: datetime | None = None
+    last_success: datetime | None = None
+    last_failure: datetime | None = None
+    last_error: str | None = None
+    last_duration_seconds: float | None = None
+    last_row_count: int | None = None
+    consecutive_failures: int = 0
+    total_failures: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON friendly copy for attributes and diagnostics."""
+        def stamp(value: datetime | None) -> str | None:
+            return None if value is None else value.isoformat()
+
+        return {
+            "last_attempt": stamp(self.last_attempt),
+            "last_success": stamp(self.last_success),
+            "last_failure": stamp(self.last_failure),
+            "last_error": self.last_error,
+            "last_duration_seconds": self.last_duration_seconds,
+            "last_row_count": self.last_row_count,
+            "consecutive_failures": self.consecutive_failures,
+            "total_failures": self.total_failures,
+        }
+
+
+# Long enough to tell a Cloudflare page from an API error body, short enough
+# not to fill an attribute with HTML.
+ERROR_SUMMARY_LENGTH = 200
+
+# LocalVolts rebuilds the rows every few minutes when it is healthy. Three
+# missed five minute rebuilds is past jitter and worth reporting.
+SOURCE_STALE_AFTER = timedelta(minutes=15)
+
+STATUS_OK = "ok"
+STATUS_NO_DATA = "no_data"
+STATUS_FETCH_FAILING = "fetch_failing"
+STATUS_PROVIDER_STALE = "provider_stale"
+
+
+def freshness_status(
+    data: "LocalVoltsData | None", health: FetchHealth, now: datetime
+) -> str:
+    """Name the reason the data is stale, if it is.
+
+    fetch_failing: the last fetch failed and older data is being served.
+    provider_stale: fetches succeed but LocalVolts has not rebuilt the rows.
+    no_data: nothing fetched yet, or no row carried a lastUpdate.
+    """
+    if health.consecutive_failures:
+        return STATUS_FETCH_FAILING
+    if data is None or data.source_updated is None:
+        return STATUS_NO_DATA
+    if now - data.source_updated > SOURCE_STALE_AFTER:
+        return STATUS_PROVIDER_STALE
+    return STATUS_OK
+
+
 def _source_updated(records: list[dict[str, Any]]) -> datetime | None:
     """Return the newest lastUpdate across the rows, as a UTC-aware datetime."""
     newest: datetime | None = None
@@ -162,6 +230,7 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         # The metadata fields, read once and kept. None until a fetch succeeds.
         self.metadata: dict[str, str] | None = None
         self._metadata_retry_after: datetime | None = None
+        self.fetch_health = FetchHealth()
 
     def _report_unrecognised_qualities(self, records: list[dict[str, Any]]) -> None:
         """Log, once each, quality values the integration does not know.
@@ -233,9 +302,19 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         local_now = dt_util.now()
         from_dt, to_dt = self._request_window(now, local_now)
 
+        health = self.fetch_health
+        health.last_attempt = now
+        started = dt_util.utcnow()
         try:
             records = await self.client.fetch_interval(self.nmi, from_dt, to_dt)
         except Exception as exc:  # noqa: BLE001
+            health.last_duration_seconds = round(
+                (dt_util.utcnow() - started).total_seconds(), 2
+            )
+            health.last_failure = now
+            health.last_error = f"{type(exc).__name__}: {exc}"[:ERROR_SUMMARY_LENGTH]
+            health.consecutive_failures += 1
+            health.total_failures += 1
             if self.data is not None:
                 _LOGGER.warning(
                     "LocalVolts v2 interval fetch failed (%s), serving stale data", exc
@@ -243,6 +322,10 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
                 return self.data
             raise UpdateFailed(f"LocalVolts v2 interval fetch failed: {exc}") from exc
 
+        health.last_duration_seconds = round((dt_util.utcnow() - started).total_seconds(), 2)
+        health.last_success = now
+        health.last_row_count = len(records)
+        health.consecutive_failures = 0
         self._report_unrecognised_qualities(records)
         await self._async_load_metadata(now)
 

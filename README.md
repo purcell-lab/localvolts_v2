@@ -58,7 +58,7 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
-| Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the rows, with that time in `source_updated`. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. It updates on each poll, so it moves in steps of the poll interval. |
+| Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the rows, with that time in `source_updated`. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. Its `status` attribute names the cause: `ok`, `provider_stale` (fetches succeed but LocalVolts has not rebuilt the rows for over 15 minutes), `fetch_failing` (the last fetch failed and older data is being served, with `consecutive_failures` and `last_error`), or `no_data`. It updates on each poll, so it moves in steps of the poll interval. |
 | NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
 | Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
 | Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
@@ -318,6 +318,17 @@ The integration reads `GET /v2/customer/metadata` once, then retries no sooner t
 The guide documents five `quality` values: `Act`, `Sub`, `FSub`, `Exp` and `Fcst`. `Sub` and `FSub` are meter data the meter data provider substituted, so both describe an interval that has elapsed and both count towards the daily and yesterday totals. `FSub` is a final substitution and counts as settled, so a day made only of `Act` and `FSub` rows is `confirmed`. `Sub` can still be revised and counts as `provisional`, like `Exp`. Neither has been seen live. A value outside these five is logged once and its rows are left out of the totals.
 
 The Yesterday sensors therefore publish a total alongside a `settlement_state` of `no_data`, `partial`, `provisional` or `confirmed`, so a figure is never mistaken for a final one. Full measurements and method are in [docs/settlement.md](docs/settlement.md), including the exact formula `spotCost` follows and the denominator mistake that makes it look unreliable.
+
+## Debugging stale data
+
+Start with Data Age and its `status` attribute, which separate the two causes:
+
+- `provider_stale`: this integration reaches LocalVolts fine, but the rows it gets back carry an old `lastUpdate`. The stall is upstream; nothing in Home Assistant will fix it.
+- `fetch_failing`: the last fetch failed, so the sensors are showing the last good data. `last_error` holds the failure, for example a 504 from the API gateway.
+
+For more, use **Download diagnostics** on the integration's page. It reports the fetch health (last attempt, last success, consecutive and total failures, the last error and how long the fetch took), the gap between the fetch time and `source_updated`, per direction row counts by quality and by `lastUpdate`, the current interval, the forecast bounds and yesterday's settlement state. The API key, partner id, NMI and the site specific metadata are redacted, and no rows are dumped.
+
+To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
 ## Upgrading to 2.10.0
 
