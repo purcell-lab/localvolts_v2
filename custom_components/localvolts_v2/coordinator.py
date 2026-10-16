@@ -233,6 +233,9 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         self.metadata: dict[str, str] | None = None
         self._metadata_retry_after: datetime | None = None
         self.fetch_health = FetchHealth()
+        # Whether the current stale episode has been logged, so it is logged
+        # once rather than on every poll.
+        self._source_stale_logged = False
 
     def _report_unrecognised_qualities(self, records: list[dict[str, Any]]) -> None:
         """Log, once each, quality values the integration does not know.
@@ -297,6 +300,30 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         )
         from_dt = max(window_start_local.astimezone(timezone.utc), now - API_MAX_HISTORY)
         return from_dt, now + API_MAX_HORIZON
+
+    def _report_source_staleness(
+        self, source_updated: datetime | None, now: datetime
+    ) -> None:
+        """Log once when the forecast goes stale, and once when it recovers.
+
+        Polls keep succeeding while LocalVolts serves an old forecast, so
+        nothing else in the log shows it.
+        """
+        stale = source_updated is not None and now - source_updated > SOURCE_STALE_AFTER
+        if stale and source_updated is not None and not self._source_stale_logged:
+            _LOGGER.warning(
+                "LocalVolts has not rebuilt the forecast since %s (%.0f minutes); "
+                "polls are succeeding but the data is stale",
+                source_updated.isoformat(),
+                (now - source_updated).total_seconds() / 60.0,
+            )
+            self._source_stale_logged = True
+        elif not stale and self._source_stale_logged and source_updated is not None:
+            _LOGGER.info(
+                "LocalVolts forecast rebuilt at %s; the data is fresh again",
+                source_updated.isoformat(),
+            )
+            self._source_stale_logged = False
 
     async def _async_update_data(self) -> LocalVoltsData:
         """Fetch data, retaining the last known data if the primary v2 poll fails."""
@@ -364,15 +391,20 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
         current_sell = _current_record(sell_records, now)
         buy_forecast = _forward_forecast(buy_records, now)
         sell_forecast = _forward_forecast(sell_records, now)
-        # Freshness is read from the rows consumers act on: the current interval
-        # and the forecast. LocalVolts restamps elapsed rows as they settle, so
-        # on 2026-10-16 an elapsed row stamped 00:30Z made a forecast last
-        # rebuilt at 00:03Z read 27 minutes fresher than it was. The whole
-        # fetch is the fallback for a response with no forward rows.
-        forward = [
-            record for record in (current_buy, current_sell) if record is not None
-        ] + buy_forecast + sell_forecast
-        source_updated = _source_updated(forward) or _source_updated(records)
+        # Freshness is when LocalVolts last rebuilt the forecast, so it is read
+        # from the forecast rows. Settling rows are restamped as meter data
+        # arrives: on 2026-10-16 an elapsed row stamped 00:30Z made a forecast
+        # last rebuilt at 00:03Z read 27 minutes fresher than it was, and the
+        # current interval is restamped when it turns Exp, which on a healthy
+        # day reads 20 minutes fresher than the forecast. The current rows,
+        # then the whole fetch, are fallbacks for a response with no forecast.
+        current = [record for record in (current_buy, current_sell) if record is not None]
+        source_updated = (
+            _source_updated(buy_forecast + sell_forecast)
+            or _source_updated(current)
+            or _source_updated(records)
+        )
+        self._report_source_staleness(source_updated, now)
 
         return LocalVoltsData(
             current_buy=current_buy,

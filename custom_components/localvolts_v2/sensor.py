@@ -65,6 +65,7 @@ from .const import (
     STATE_NO_DATA,
 )
 from .coordinator import LocalVoltsCoordinator, freshness_status
+from .detailed_forecast import ATTR_DETAILED_FORECAST, detailed_forecast
 from .haeo_feed import build_haeo_feed_sensors
 from .p2p_history_sensor import LocalVoltsP2PHistorySensor
 from .paired_feed import LocalVoltsFlexUpForecastSensor
@@ -227,7 +228,11 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
     # check, so excluding the attribute here also removes the size warning
     # rather than merely skipping storage, and the full payload stays live in
     # the state machine for template and optimiser consumers.
-    _unrecorded_attributes = frozenset({ATTR_FORECAST, ATTR_FORECAST_FIELDS})
+    #
+    # detailedForecast is the same forecast in full, so it follows it out.
+    _unrecorded_attributes = frozenset(
+        {ATTR_FORECAST, ATTR_FORECAST_FIELDS, ATTR_DETAILED_FORECAST}
+    )
 
     def __init__(
         self,
@@ -267,8 +272,9 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose current pricing details and the complete forward forecast."""
         current = self._current
+        detail = {ATTR_DETAILED_FORECAST: detailed_forecast(current, self._forecast)}
         if current is None:
-            return _with_forecast({}, self._forecast)
+            return {**_with_forecast({}, self._forecast), **detail}
         base = {
             ATTR_VOLUME: _number(current, ATTR_VOLUME),
             ATTR_AMOUNT_ALL: _number(current, ATTR_AMOUNT_ALL),
@@ -287,7 +293,7 @@ class _CurrentRateSensor(LocalVoltsSensorBase):
             ATTR_EMISSIONS: _number(current, ATTR_EMISSIONS),
             ATTR_ZERO_EE: _number(current, ATTR_ZERO_EE),
         }
-        return _with_forecast(base, self._forecast)
+        return {**_with_forecast(base, self._forecast), **detail}
 
 
 class LocalVoltsCurrentBuyRateSensor(_CurrentRateSensor):

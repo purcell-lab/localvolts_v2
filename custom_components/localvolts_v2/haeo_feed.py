@@ -52,6 +52,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import LocalVoltsCoordinator
+from .detailed_forecast import ATTR_DETAILED_FORECAST, detailed_forecast
 
 # Held flat across each interval rather than interpolated between stamps.
 INTERPOLATION_PREVIOUS = "previous"
@@ -266,10 +267,12 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
     # are left recorded.
     #
     # The provenance attributes change on every poll and describe the forecast,
-    # so they follow it out of the recorder.
+    # so they follow it out of the recorder, as does detailedForecast on the
+    # price feeds.
     _unrecorded_attributes = frozenset(
         {
             "forecast",
+            ATTR_DETAILED_FORECAST,
             "interpolation_mode",
             "direction",
             "source_field",
@@ -348,7 +351,7 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
             points.append({"time": start.isoformat(), "value": round(value, 6)})
         points.sort(key=lambda point: point["time"])
 
-        base = {
+        base: dict[str, Any] = {
             "interpolation_mode": INTERPOLATION_PREVIOUS,
             "direction": self._definition.direction,
             "source_field": self._definition.source,
@@ -364,6 +367,10 @@ class HaeoFeedSensor(CoordinatorEntity[LocalVoltsCoordinator], SensorEntity):
                 None if data is None else data.source_updated,
             )
         )
+        if self._definition.unit == UNIT_DOLLAR_PER_KWH:
+            # Prices only. The power and proportion feeds read the same rows,
+            # and a consumer picking a price entity is the one #51 is for.
+            base[ATTR_DETAILED_FORECAST] = detailed_forecast(self._current(), records)
         return base
 
 

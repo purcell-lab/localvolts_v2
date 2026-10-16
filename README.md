@@ -50,15 +50,15 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 
 | Entity | Purpose |
 |---|---|
-| Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Buy forecast. |
-| Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Sell forecast. |
+| Current Buy Rate | Current `Buy` import `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Buy forecast, compact in `forecast` and complete in `detailedForecast`. |
+| Current Sell Rate | Current `Sell` export `rateAllVar` in c/kWh. Attributes include the current interval components, `emissions`, `zeroEE` and the full forward Sell forecast, compact in `forecast` and complete in `detailedForecast`. |
 | Daily Cost | Sum of today's elapsed Buy `amountAll` records, in AUD. |
 | Daily Earnings | Sum of today's elapsed Sell `amountAll` records, in AUD. This represents total export interval earnings, not only P2P-matched value. |
 | Daily Net Cost | Daily Cost less Daily Earnings, in AUD. Goes negative on a day that exports more value than it imports. |
 | Yesterday Cost | Previous local day total import cost, published with a settlement completeness account and every interval of the day in its attributes. |
 | Yesterday Earnings | Previous local day total export earnings, with the same completeness account and interval detail. |
 | Export P2P Proportion | Current Sell `proportionP2P` as the API's raw fraction from 0 to 1. This entity intentionally uses export direction. |
-| Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the current and forecast rows (elapsed rows are restamped as they settle, so they are left out), with that time in `source_updated`. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. Its `status` attribute names the cause: `ok`, `provider_stale` (fetches succeed but LocalVolts has not rebuilt the rows for over 60 minutes; LocalVolts rebuilds at about :02 and :32, so up to about 30 minutes is normal), `fetch_failing` (the last fetch failed and older data is being served, with `consecutive_failures` and `last_error`), or `no_data`. It updates on each poll, so it moves in steps of the poll interval. |
+| Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the forecast rows, with that time in `source_updated`. Settling rows are left out: LocalVolts restamps elapsed rows as meter data arrives, and the current interval when it turns `Exp`, so they read fresher than the forecast. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. Its `status` attribute names the cause: `ok`, `provider_stale` (fetches succeed but LocalVolts has not rebuilt the rows for over 60 minutes; LocalVolts rebuilds at about :02 and :32, so up to about 30 minutes is normal), `fetch_failing` (the last fetch failed and older data is being served, with `consecutive_failures` and `last_error`), or `no_data`. It updates on each poll, so it moves in steps of the poll interval. |
 | NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
 | Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
 | Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
@@ -164,7 +164,7 @@ Every single signal sensor, and Flex Up Forecast below, also carries where its f
 | Attribute | Meaning |
 |---|---|
 | `last_update` | When the coordinator fetched the rows, the same on every entity of the entry |
-| `source_updated` | When LocalVolts last rebuilt the current and forecast rows, the newest `lastUpdate` they carry |
+| `source_updated` | When LocalVolts last rebuilt the forecast, the newest `lastUpdate` on the forecast rows |
 | `interval_minutes` | Interval length of the source rows, 5 today |
 | `forecast_start` | Start of the earliest source row |
 | `forecast_end` | End of the latest source row |
@@ -175,6 +175,43 @@ Use `last_update`, not the entity's `last_updated`, to tell which of two reading
 
 One more sensor, Flex Up Forecast, pairs both directions on the same row. Its `forecast` attribute is a list of `{"time", "costsflexup", "earningsflexup", "quality"}` mappings in `$/kWh`, where `costsflexup` is the Buy `flexUp` and `earningsflexup` is the Sell `flexUp`, paired on `intervalEnd`. `time` is the interval start, as on the other sensors, and `quality` is the Buy row's value. An interval with either side missing is left out. The state is the current Buy `flexUp`. The attribute is excluded from the recorder. It exists so a consumer that wants both directions reads one entity, and it was requested on issue #31.
 
+
+
+### Detailed forecast
+
+Current Buy Rate, Current Sell Rate and every single signal sensor priced in `$/kWh` (Buy and Sell Rate All Var, Spot Rate, Flex Up and P2P Matched Cost) carry a `detailedForecast` attribute. It is every field LocalVolts returned for each forward interval of that sensor's direction, as the API served it, so a template or optimiser can read the full detail from the price entity it already uses. Requested on issue #51, following Amber Express.
+
+- **Rows:** the current interval first, then each forecast interval, in order. A current interval that has turned `Exp` is added from the same poll; one still `Fcst` is already among the forecast rows and is not repeated.
+- **Fields:** all of them, unrounded, including `quality`, `lastUpdate`, `intervalDuration`, the `amount*` components, `rateAllVar`, `flexUp`, `flexDown`, `matchedCost` and `proportionP2P`, and any field LocalVolts adds later. `NMI` is dropped, because it is the account identifier and the same on every row.
+- **Units and time:** the API's own, unlike the single signal `forecast`. Rates and `flexUp` are in c/kWh, amounts in $, `volume` in kWh, as each row's `*Units` fields say, and `intervalEnd` is the **end** of the interval. Nothing is derived, converted or renamed.
+- **Snapshot:** the state, `forecast` and `detailedForecast` are written together from one poll.
+- **Recorder:** excluded, beside `forecast`, so the price's own history is recorded as before. The exclusion is applied before Home Assistant's 16 KB attribute limit, which a full day of rows passes many times over.
+- **Live only:** it says what the forecast is now. Because it is not recorded, it cannot say what the forecast was at an earlier decision; keep your own copy if you need that.
+- **Size:** a full day is about 250 KB of JSON per entity, about 2.5 MB across the ten entities that carry it. It stays out of the database, but it is sent to every open dashboard on each poll.
+
+One row from Current Buy Rate:
+
+```json
+{"circuit": "Import", "register": "12", "direction": "Buy", "intervalEnd": "2026-10-16T03:35:00Z",
+ "intervalDuration": 5, "quality": "Fcst", "lastUpdate": "2026-10-16T03:05:55Z",
+ "rateAllVar": 24.233401241234, "rateAllVarUnits": "c/kWh", "flexUp": 23.966056412345, "flexUnits": "c/kWh",
+ "volume": 0.06549723198, "volumeUnits": "kWh", "amountAll": 0.026029721834, "amountAllUnits": "$", "...": "..."}
+```
+
+One row from Sell Rate All Var:
+
+```json
+{"circuit": "Export", "register": "72", "direction": "Sell", "intervalEnd": "2026-10-16T03:35:00Z",
+ "intervalDuration": 5, "quality": "Fcst", "lastUpdate": "2026-10-16T03:05:55Z",
+ "rateAllVar": 6.01161167, "rateAllVarUnits": "c/kWh", "proportionP2P": 0.000003123456789,
+ "matchedCost": 0.000000151234, "matchedCostUnits": "$", "...": "..."}
+```
+
+A template reading the next interval's Buy `flexUp` in $/kWh:
+
+```jinja
+{{ state_attr('sensor.localvolts_v2_buy_flex_up', 'detailedForecast')[1].flexUp / 100 }}
+```
 
 If your optimizer sums every entity assigned to a field rather than choosing between them, adding one of these prices alongside an existing price series in the same field will double count.
 
@@ -325,6 +362,8 @@ Start with Data Age and its `status` attribute, which separate the two causes:
 
 - `provider_stale`: this integration reaches LocalVolts fine, but the rows it gets back carry an old `lastUpdate`. The stall is upstream; nothing in Home Assistant will fix it.
 - `fetch_failing`: the last fetch failed, so the sensors are showing the last good data. `last_error` holds the failure, for example a 504 from the API gateway.
+
+A stale forecast is also logged: one warning when it passes 60 minutes, and one info line when LocalVolts rebuilds it.
 
 For more, use **Download diagnostics** on the integration's page. It reports the fetch health (last attempt, last success, consecutive and total failures, the last error and how long the fetch took), the gap between the fetch time and `source_updated`, per direction row counts by quality, the oldest and newest `lastUpdate` with how many differ, the current interval, the forecast bounds and yesterday's settlement state. The API key, partner id, NMI and the site specific metadata are redacted, and no rows are dumped.
 
