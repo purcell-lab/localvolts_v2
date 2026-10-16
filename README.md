@@ -369,6 +369,14 @@ For more, use **Download diagnostics** on the integration's page. It reports the
 
 To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
+## Upgrading to 2.12.0
+
+- **Detailed forecast (#51):** Current Buy Rate, Current Sell Rate and the eight `$/kWh` single signal sensors carry `detailedForecast`, every field LocalVolts returned for each forward interval of their direction, unrounded and in the API's own units, current interval first. `NMI` is dropped from each row. It is excluded from the recorder, so price history is unchanged, but it adds about 250 KB per entity to what each open dashboard receives on a poll. See [Detailed forecast](#detailed-forecast).
+- **Data Age reads the forecast rows only (#52):** the current interval is restamped when it turns `Exp`, so on 16 October Data Age read 0.6 minutes for a forecast 20 minutes old. `source_updated` now comes from the forecast rows, falling back to the current rows and then the whole fetch.
+- **A stale forecast is logged:** one warning when it passes 60 minutes, one info line when LocalVolts rebuilds it.
+
+No entities are added, removed or renamed. A restart is required.
+
 ## Upgrading to 2.11.2
 
 Data Age's `provider_stale` status now needs the data to be over 60 minutes old, up from 15. LocalVolts rebuilds the data at about :02 and :32, so a healthy source reads up to about 30 minutes old, and 15 minutes reported `provider_stale` on normal data: 43 of 509 samples over 30 hours on one household. 16 October's stall reached 175 minutes. The 60 minutes matches Nimbus. Download diagnostics and `scripts/check_api_freshness.py` use the same threshold.
