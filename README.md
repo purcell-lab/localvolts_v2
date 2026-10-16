@@ -330,6 +330,15 @@ For more, use **Download diagnostics** on the integration's page. It reports the
 
 To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
+## Upgrading to 2.11.1
+
+Two fixes to 2.11.0, both found on the live system.
+
+- Data Age and `source_updated` now read the current and forecast rows only. LocalVolts restamps elapsed rows as they settle, so on 16 October Data Age read 123 minutes for a forecast that was 152 minutes old.
+- Download diagnostics summarises each row group's `lastUpdate` as the oldest and newest stamp, how many differ and how many are missing, instead of listing every stamp. The download was 42 KB.
+
+No entities are added, removed or renamed. A restart is required.
+
 ## Upgrading to 2.11.0
 
 This release shows when LocalVolts data is stale, and why. On 16 October the API answered every poll for over two hours with rows it had not rebuilt, while the rate sensors kept moving through the old forecast and nothing in Home Assistant showed it.
