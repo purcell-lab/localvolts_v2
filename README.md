@@ -330,6 +330,17 @@ For more, use **Download diagnostics** on the integration's page. It reports the
 
 To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
+## Upgrading to 2.11.0
+
+This release shows when LocalVolts data is stale, and why. On 16 October the API answered every poll for over two hours with rows it had not rebuilt, while the rate sensors kept moving through the old forecast and nothing in Home Assistant showed it.
+
+- Every single signal sensor and Flex Up Forecast carry `source_updated`, when LocalVolts last rebuilt the rows, beside `last_update`, when they were fetched. Both are excluded from the recorder.
+- A diagnostic Data Age sensor reports the minutes since `source_updated`. Its `status` attribute names the cause: `ok`, `provider_stale` when fetches succeed but the source is more than 15 minutes old, `fetch_failing` when the last fetch failed and older data is being served, or `no_data`. Alert on it. See [Debugging stale data](#debugging-stale-data).
+- Download diagnostics on the integration's page reports fetch health, the data age and the rows by quality and `lastUpdate`, with the credentials, NMI and site specific metadata redacted.
+- `scripts/check_api_freshness.py` asks the API directly, outside Home Assistant.
+
+One entity is added and none are removed or renamed. A restart is required. Minor rather than patch because an entity and attributes are added.
+
 ## Upgrading to 2.10.0
 
 This release answers issues #47 and #19.
