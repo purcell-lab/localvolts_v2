@@ -33,7 +33,7 @@ BASE_URL = "https://api2.localvolts.com"
 # is answered with 403 by Cloudflare in front of the API before the key is read.
 USER_AGENT = "Home Assistant"
 # Matches SOURCE_STALE_AFTER in the integration.
-STALE_AFTER_MINUTES = 15.0
+STALE_AFTER_MINUTES = 60.0
 
 
 def _get(url: str, headers: dict[str, str]) -> tuple[int, dict[str, str], bytes, float]:

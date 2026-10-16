@@ -16,9 +16,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.localvolts_v2.const import CONF_NMI, DOMAIN
 from custom_components.localvolts_v2.coordinator import (
+    FetchHealth,
     LocalVoltsCoordinator,
     LocalVoltsData,
     _source_updated,
+    freshness_status,
 )
 from custom_components.localvolts_v2.haeo_feed import build_haeo_feed_sensors
 from custom_components.localvolts_v2.paired_feed import LocalVoltsFlexUpForecastSensor
@@ -181,3 +183,15 @@ async def test_without_forward_rows_the_whole_fetch_is_used(hass):
     data = await coordinator._async_update_data()
 
     assert data.source_updated == datetime(2026, 10, 16, 0, 30, 34, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("age_minutes", "expected"),
+    [(0.0, "ok"), (28.4, "ok"), (59.9, "ok"), (60.1, "provider_stale"), (174.8, "provider_stale")],
+)
+def test_provider_stale_allows_the_normal_half_hourly_rebuild(age_minutes, expected):
+    """LocalVolts rebuilds at about :02 and :32, so ages up to about 30 minutes
+    are normal. 16 October's stall reached 174.8 minutes."""
+    data = _data(FETCHED - timedelta(minutes=age_minutes))
+
+    assert freshness_status(data, FetchHealth(), FETCHED) == expected
