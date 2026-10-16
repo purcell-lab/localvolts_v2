@@ -35,7 +35,14 @@ def main() -> int:
     )
     request = urllib.request.Request(
         f"{BASE_URL}/v2/customer/interval?{query}",
-        headers={"Authorization": authorization, "partner": partner.strip()},
+        # The same headers the integration sends. Without a User-Agent, urllib
+        # announces itself as Python-urllib, which Cloudflare in front of the
+        # API answers with 403 even when the key is good.
+        headers={
+            "Authorization": authorization,
+            "partner": partner.strip(),
+            "User-Agent": "Home Assistant",
+        },
     )
     with urllib.request.urlopen(request, timeout=60) as response:
         payload = json.load(response)
