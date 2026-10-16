@@ -195,3 +195,63 @@ def test_provider_stale_allows_the_normal_half_hourly_rebuild(age_minutes, expec
     data = _data(FETCHED - timedelta(minutes=age_minutes))
 
     assert freshness_status(data, FetchHealth(), FETCHED) == expected
+
+
+async def test_a_restamped_current_interval_does_not_make_the_forecast_look_fresh(hass):
+    """On 2026-10-16 at 13:27 the current interval, turned Exp, was stamped
+    03:25Z while the forecast was last rebuilt at 03:05Z. Freshness must follow
+    the forecast."""
+    now = datetime.now(timezone.utc)
+    client = MagicMock()
+    client.fetch_metadata = AsyncMock(return_value={})
+    current = _row("Buy", now + timedelta(minutes=2), "2026-10-16T03:25:16Z")
+    current["quality"] = "Exp"
+    client.fetch_interval = AsyncMock(
+        return_value=[
+            current,
+            _row("Buy", now + timedelta(minutes=7), "2026-10-16T03:05:55Z"),
+            _row("Sell", now + timedelta(minutes=7), "2026-10-16T03:05:54Z"),
+        ]
+    )
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
+
+    data = await coordinator._async_update_data()
+
+    assert data.current_buy is current
+    assert data.source_updated == datetime(2026, 10, 16, 3, 5, 55, tzinfo=timezone.utc)
+
+
+async def test_without_a_forecast_the_current_interval_is_used(hass):
+    now = datetime.now(timezone.utc)
+    client = MagicMock()
+    client.fetch_metadata = AsyncMock(return_value={})
+    current = _row("Buy", now + timedelta(minutes=2), "2026-10-16T03:25:16Z")
+    current["quality"] = "Exp"
+    settled = _row("Buy", now - timedelta(minutes=30), "2026-10-16T03:40:00Z")
+    settled["quality"] = "Exp"
+    client.fetch_interval = AsyncMock(return_value=[settled, current])
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
+
+    data = await coordinator._async_update_data()
+
+    assert data.source_updated == datetime(2026, 10, 16, 3, 25, 16, tzinfo=timezone.utc)
+
+
+async def test_a_stale_episode_is_logged_once_and_its_recovery_once(hass, caplog):
+    now = datetime.now(timezone.utc)
+    stamp = lambda moment: moment.isoformat().replace("+00:00", "Z")  # noqa: E731
+    stale_rows = [_row("Buy", now + timedelta(minutes=7), stamp(now - timedelta(minutes=90)))]
+    fresh_rows = [_row("Buy", now + timedelta(minutes=7), stamp(now - timedelta(minutes=2)))]
+    client = MagicMock()
+    client.fetch_metadata = AsyncMock(return_value={})
+    client.fetch_interval = AsyncMock(side_effect=[stale_rows, stale_rows, fresh_rows, fresh_rows])
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
+    caplog.set_level("INFO", logger="custom_components.localvolts_v2.coordinator")
+
+    for _ in range(4):
+        await coordinator._async_update_data()
+
+    stale = [r for r in caplog.records if "has not rebuilt the forecast" in r.message]
+    recovered = [r for r in caplog.records if "fresh again" in r.message]
+    assert len(stale) == 1 and stale[0].levelname == "WARNING"
+    assert len(recovered) == 1 and recovered[0].levelname == "INFO"
