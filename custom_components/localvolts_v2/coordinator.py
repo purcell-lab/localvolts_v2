@@ -44,8 +44,8 @@ class LocalVoltsData:
     # Defaulted so a caller building a snapshot for one narrow purpose does not
     # have to fabricate a reconciliation it will never read.
     yesterday: dict[str, DayReconciliation] = field(default_factory=dict)
-    # The newest lastUpdate stamped on any row of the fetch, which is when
-    # LocalVolts last rebuilt the data. last_update above is only when this
+    # The newest lastUpdate on the current and forecast rows, which is when
+    # LocalVolts last rebuilt the data consumers act on. last_update above is only when this
     # integration fetched it, and a fetch can succeed while returning rows
     # LocalVolts has not refreshed for hours. None when no row carried a stamp.
     source_updated: datetime | None = None
@@ -358,11 +358,25 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.warning("LocalVolts P2P history update failed (non-fatal): %s", exc)
 
+        current_buy = _current_record(buy_records, now)
+        current_sell = _current_record(sell_records, now)
+        buy_forecast = _forward_forecast(buy_records, now)
+        sell_forecast = _forward_forecast(sell_records, now)
+        # Freshness is read from the rows consumers act on: the current interval
+        # and the forecast. LocalVolts restamps elapsed rows as they settle, so
+        # on 2026-10-16 an elapsed row stamped 00:30Z made a forecast last
+        # rebuilt at 00:03Z read 27 minutes fresher than it was. The whole
+        # fetch is the fallback for a response with no forward rows.
+        forward = [
+            record for record in (current_buy, current_sell) if record is not None
+        ] + buy_forecast + sell_forecast
+        source_updated = _source_updated(forward) or _source_updated(records)
+
         return LocalVoltsData(
-            current_buy=_current_record(buy_records, now),
-            current_sell=_current_record(sell_records, now),
-            buy_forecast=_forward_forecast(buy_records, now),
-            sell_forecast=_forward_forecast(sell_records, now),
+            current_buy=current_buy,
+            current_sell=current_sell,
+            buy_forecast=buy_forecast,
+            sell_forecast=sell_forecast,
             buy_history=[
                 record for record in buy_records if record.get("quality") in SETTLED_QUALITIES
             ],
@@ -371,5 +385,5 @@ class LocalVoltsCoordinator(DataUpdateCoordinator[LocalVoltsData]):
             ],
             last_update=now,
             yesterday=yesterday,
-            source_updated=_source_updated(records),
+            source_updated=source_updated,
         )
