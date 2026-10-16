@@ -147,8 +147,11 @@ async def test_diagnostics_report_a_provider_stall_without_any_secret(hass):
     assert result["status"] == STATUS_PROVIDER_STALE
     assert result["data"]["data_age_minutes"] == pytest.approx(132, abs=0.5)
     assert result["data"]["fetch_to_source_gap_minutes"] == pytest.approx(132, abs=0.5)
-    assert result["data"]["buy_forecast"]["last_update_values"] == {
-        "2026-10-16T00:01:55Z": 1
+    assert result["data"]["buy_forecast"]["last_update"] == {
+        "oldest": "2026-10-16T00:01:55Z",
+        "newest": "2026-10-16T00:01:55Z",
+        "distinct": 1,
+        "missing": 0,
     }
     assert result["data"]["current_buy"]["quality"] == "Fcst"
     assert result["fetch_health"]["consecutive_failures"] == 0
@@ -180,3 +183,33 @@ async def test_data_age_carries_the_status_and_fetch_health(hass):
     assert attributes["consecutive_failures"] == 0
     assert "status" not in type(sensor)._unrecorded_attributes
     assert {"last_error", "source_updated"} <= type(sensor)._unrecorded_attributes
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_a_spread_of_per_row_stamps_is_summarised_not_listed(hass):
+    """LocalVolts stamps each row a second apart; 288 rows must not list 288."""
+    fetched = datetime.now(timezone.utc)
+    rows = [
+        _row(
+            "Buy",
+            fetched + timedelta(minutes=5 * (index + 1)),
+            (datetime(2026, 10, 16, 0, 1, 56, tzinfo=timezone.utc) + timedelta(seconds=index))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        )
+        for index in range(288)
+    ]
+    rows.append({**rows[0], "lastUpdate": None})
+    data = _data(fetched - timedelta(minutes=150), fetched)
+    data.buy_forecast = rows
+    entry = _entry(hass, data)
+
+    summary = (await async_get_config_entry_diagnostics(hass, entry))["data"]["buy_forecast"]
+
+    assert summary["last_update"] == {
+        "oldest": "2026-10-16T00:01:56Z",
+        "newest": "2026-10-16T00:06:43Z",
+        "distinct": 288,
+        "missing": 1,
+    }
+    assert len(json.dumps(summary)) < 400

@@ -144,3 +144,40 @@ async def test_data_age_never_goes_negative_on_clock_skew(hass):
         return_value=FETCHED - timedelta(seconds=30),
     ):
         assert sensor.native_value == 0.0
+
+
+async def test_a_restamped_elapsed_row_does_not_make_the_forecast_look_fresh(hass):
+    """On 2026-10-16 elapsed rows were restamped at 00:30Z while the forecast
+    still carried 00:01-00:03Z. Freshness must follow the forecast."""
+    now = datetime.now(timezone.utc)
+    client = MagicMock()
+    client.fetch_metadata = AsyncMock(return_value={})
+    settled = _row("Buy", now - timedelta(minutes=30), "2026-10-16T00:30:34Z")
+    settled["quality"] = "Exp"
+    client.fetch_interval = AsyncMock(
+        return_value=[
+            settled,
+            _row("Buy", now + timedelta(minutes=2), "2026-10-16T00:01:56Z"),
+            _row("Buy", now + timedelta(minutes=7), "2026-10-16T00:03:32Z"),
+            _row("Sell", now + timedelta(minutes=7), "2026-10-16T00:03:31Z"),
+        ]
+    )
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
+
+    data = await coordinator._async_update_data()
+
+    assert data.source_updated == datetime(2026, 10, 16, 0, 3, 32, tzinfo=timezone.utc)
+
+
+async def test_without_forward_rows_the_whole_fetch_is_used(hass):
+    now = datetime.now(timezone.utc)
+    client = MagicMock()
+    client.fetch_metadata = AsyncMock(return_value={})
+    settled = _row("Buy", now - timedelta(minutes=30), "2026-10-16T00:30:34Z")
+    settled["quality"] = "Exp"
+    client.fetch_interval = AsyncMock(return_value=[settled])
+    coordinator = LocalVoltsCoordinator(hass, client, "1234567890")
+
+    data = await coordinator._async_update_data()
+
+    assert data.source_updated == datetime(2026, 10, 16, 0, 30, 34, tzinfo=timezone.utc)

@@ -41,16 +41,26 @@ def _minutes(later: datetime, earlier: datetime | None) -> float | None:
 
 
 def _rows_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Count rows by quality and lastUpdate, and bound them by interval end."""
+    """Count rows by quality, bound them by interval end and by lastUpdate.
+
+    LocalVolts stamps each row as it writes it, a second or so apart, so a
+    rebuild leaves a spread of near identical stamps. The oldest, the newest
+    and how many differ say everything a count per stamp did, in four values
+    instead of a hundred.
+    """
     ends = sorted(
         str(row["intervalEnd"]) for row in rows if row.get("intervalEnd")
     )
+    stamps = sorted(str(row["lastUpdate"]) for row in rows if row.get("lastUpdate"))
     return {
         "rows": len(rows),
         "quality": dict(Counter(str(row.get("quality")) for row in rows)),
-        "last_update_values": dict(
-            Counter(str(row.get("lastUpdate")) for row in rows)
-        ),
+        "last_update": {
+            "oldest": stamps[0] if stamps else None,
+            "newest": stamps[-1] if stamps else None,
+            "distinct": len(set(stamps)),
+            "missing": len(rows) - len(stamps),
+        },
         "first_interval_end": ends[0] if ends else None,
         "last_interval_end": ends[-1] if ends else None,
     }
