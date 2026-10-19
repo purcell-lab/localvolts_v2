@@ -80,6 +80,10 @@ METADATA_SENSORS: tuple[tuple[str, str, str], ...] = (
     ("Tariff", "Network Tariff Code", "tariff"),
     ("Circuit", "Circuit", "circuit"),
     ("Suffix", "Meter Suffix", "suffix"),
+    ("TNI", "Transmission Node Identifier", "tni"),
+    ("LNSP", "Network Service Provider", "lnsp"),
+    ("MDP", "Meter Data Provider", "mdp"),
+    ("Jurisdiction", "Jurisdiction", "jurisdiction"),
 )
 
 

@@ -131,7 +131,13 @@ def _entry(hass, data: LocalVoltsData | None) -> MockConfigEntry:
     coordinator = LocalVoltsCoordinator(hass, MagicMock(), SECRET_NMI)
     if data is not None:
         coordinator.async_set_updated_data(data)
-    coordinator.metadata = {"Region": "NSW1", "Tariff": "BLNE23AU", "Suffix": "72"}
+    coordinator.metadata = {
+        "Region": "NSW1",
+        "Tariff": "BLNE23AU",
+        "Suffix": "72",
+        "TNI": "PLACEHOLDER-TNI",
+        "LNSP": "PLACEHOLDER-LNSP",
+    }
     entry.runtime_data = LocalVoltsEntryData(coordinator=coordinator)
     return entry
 
@@ -156,7 +162,8 @@ async def test_diagnostics_report_a_provider_stall_without_any_secret(hass):
     assert result["data"]["current_buy"]["quality"] == "Fcst"
     assert result["fetch_health"]["consecutive_failures"] == 0
     assert result["metadata"]["Region"] == "NSW1"
-    for secret in (SECRET_KEY, "s3cret", SECRET_PARTNER, SECRET_NMI, "BLNE23AU"):
+    assert result["metadata"]["LNSP"] == "PLACEHOLDER-LNSP"
+    for secret in (SECRET_KEY, "s3cret", SECRET_PARTNER, SECRET_NMI, "BLNE23AU", "PLACEHOLDER-TNI"):
         assert secret not in dumped, secret
 
 

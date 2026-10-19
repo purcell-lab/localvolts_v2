@@ -1,8 +1,8 @@
-"""Customer metadata: six fields are kept, everything else is discarded.
+"""Customer metadata: every field but the NMI is kept.
 
 The fixture uses obvious placeholders for every site specific value. The tests
-assert that NMI, LNSP, TNI, MDP and Jurisdiction never survive, and that the
-site specific kept fields are disabled by default and never logged.
+assert that the NMI never survives, and that the site specific kept fields are
+disabled by default and never logged.
 """
 from __future__ import annotations
 
@@ -21,10 +21,6 @@ from custom_components.localvolts_v2.sensor import METADATA_SENSORS, LocalVoltsM
 
 DISCARDED = {
     "NMI": "PLACEHOLDER-NMI",
-    "LNSP": "PLACEHOLDER-LNSP",
-    "TNI": "PLACEHOLDER-TNI",
-    "MDP": "PLACEHOLDER-MDP",
-    "Jurisdiction": "PLACEHOLDER-JURISDICTION",
 }
 
 KEPT = {
@@ -34,6 +30,10 @@ KEPT = {
     "Tariff": "PLACEHOLDER-TARIFF",
     "Circuit": "Import",
     "Suffix": "E1",
+    "TNI": "PLACEHOLDER-TNI",
+    "LNSP": "PLACEHOLDER-LNSP",
+    "MDP": "PLACEHOLDER-MDP",
+    "Jurisdiction": "PLACEHOLDER-JURISDICTION",
 }
 
 
@@ -54,7 +54,7 @@ def _client(payload):
     return LocalVoltsClient(session, "key", "partner"), session
 
 
-async def test_only_the_six_fields_are_kept():
+async def test_everything_but_the_nmi_is_kept():
     client, _ = _client([_row()])
     result = await client.fetch_metadata("1234567890")
 
@@ -176,6 +176,10 @@ async def test_site_specific_sensors_start_disabled_and_the_others_enabled(hass)
         "Tariff": False,
         "Circuit": False,
         "Suffix": False,
+        "TNI": False,
+        "LNSP": True,
+        "MDP": True,
+        "Jurisdiction": True,
     }
 
 
