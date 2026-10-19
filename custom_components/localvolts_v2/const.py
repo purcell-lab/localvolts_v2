@@ -19,16 +19,14 @@ API_INTERVAL_PATH = "/v2/customer/interval"
 API_VERSION_PATH = "/version"
 API_METADATA_PATH = "/v2/customer/metadata"
 
-# The metadata fields the integration keeps. The endpoint also returns NMI,
-# which is discarded where the response is read and never reaches a sensor,
-# attribute, diagnostic or log.
+# The metadata fields the integration keeps: every field the endpoint returns.
 #
 # DLF and TNI identify the site's loss factors: AEMO publishes a distribution
 # loss factor per DLF code and a marginal loss factor per transmission node
 # (TNI) for each financial year, and LocalVolts prices spot as AEMO's price
-# times both. They, Tariff, Circuit and Suffix do narrow a site, so their
-# sensors are diagnostic and disabled by default, and their values are never
-# written to a log. Region, ReadType, Jurisdiction, LNSP and MDP name a region,
+# times both. NMI identifies the meter, and DLF, TNI, Tariff, Circuit and Suffix
+# narrow a site, so their sensors are diagnostic and disabled by default, their
+# values are never written to a log, and Download diagnostics redacts them. Region, ReadType, Jurisdiction, LNSP and MDP name a region,
 # a network or a provider, not a site, and are enabled by default.
 METADATA_FIELDS: tuple[str, ...] = (
     "Region",
@@ -41,11 +39,12 @@ METADATA_FIELDS: tuple[str, ...] = (
     "LNSP",
     "MDP",
     "Jurisdiction",
+    "NMI",
 )
 
 # Fields whose sensors start disabled in the entity registry.
 SITE_SPECIFIC_METADATA_FIELDS: frozenset[str] = frozenset(
-    {"DLF", "Tariff", "Circuit", "Suffix", "TNI"}
+    {"DLF", "Tariff", "Circuit", "Suffix", "TNI", "NMI"}
 )
 
 # Both bounds are enforced by the service, measured 2026-08-30. Asking for more

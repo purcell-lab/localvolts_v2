@@ -137,6 +137,7 @@ def _entry(hass, data: LocalVoltsData | None) -> MockConfigEntry:
         "Suffix": "72",
         "TNI": "PLACEHOLDER-TNI",
         "LNSP": "PLACEHOLDER-LNSP",
+        "NMI": "PLACEHOLDER-METADATA-NMI",
     }
     entry.runtime_data = LocalVoltsEntryData(coordinator=coordinator)
     return entry
@@ -163,7 +164,7 @@ async def test_diagnostics_report_a_provider_stall_without_any_secret(hass):
     assert result["fetch_health"]["consecutive_failures"] == 0
     assert result["metadata"]["Region"] == "NSW1"
     assert result["metadata"]["LNSP"] == "PLACEHOLDER-LNSP"
-    for secret in (SECRET_KEY, "s3cret", SECRET_PARTNER, SECRET_NMI, "BLNE23AU", "PLACEHOLDER-TNI"):
+    for secret in (SECRET_KEY, "s3cret", SECRET_PARTNER, SECRET_NMI, "BLNE23AU", "PLACEHOLDER-TNI", "PLACEHOLDER-METADATA-NMI"):
         assert secret not in dumped, secret
 
 

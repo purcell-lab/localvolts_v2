@@ -1,8 +1,8 @@
-"""Customer metadata: every field but the NMI is kept.
+"""Customer metadata: every field is kept.
 
 The fixture uses obvious placeholders for every site specific value. The tests
-assert that the NMI never survives, and that the site specific kept fields are
-disabled by default and never logged.
+assert that a field outside the documented set is dropped, and that the site
+specific fields, the NMI among them, are disabled by default and never logged.
 """
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ from custom_components.localvolts_v2.const import CONF_NMI, DOMAIN
 from custom_components.localvolts_v2.coordinator import LocalVoltsCoordinator, LocalVoltsData
 from custom_components.localvolts_v2.sensor import METADATA_SENSORS, LocalVoltsMetadataSensor
 
+# Not a documented metadata field, so it must not survive.
 DISCARDED = {
-    "NMI": "PLACEHOLDER-NMI",
+    "Undocumented": "PLACEHOLDER-UNDOCUMENTED",
 }
 
 KEPT = {
@@ -34,6 +35,7 @@ KEPT = {
     "LNSP": "PLACEHOLDER-LNSP",
     "MDP": "PLACEHOLDER-MDP",
     "Jurisdiction": "PLACEHOLDER-JURISDICTION",
+    "NMI": "PLACEHOLDER-NMI",
 }
 
 
@@ -54,7 +56,7 @@ def _client(payload):
     return LocalVoltsClient(session, "key", "partner"), session
 
 
-async def test_everything_but_the_nmi_is_kept():
+async def test_every_documented_field_is_kept_and_nothing_else():
     client, _ = _client([_row()])
     result = await client.fetch_metadata("1234567890")
 
@@ -180,6 +182,7 @@ async def test_site_specific_sensors_start_disabled_and_the_others_enabled(hass)
         "LNSP": True,
         "MDP": True,
         "Jurisdiction": True,
+        "NMI": False,
     }
 
 
