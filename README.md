@@ -379,6 +379,16 @@ For more, use **Download diagnostics** on the integration's page. It reports the
 
 To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
+## Upgrading to 2.13.0
+
+Every documented field from LocalVolts' customer metadata is now published, so a site's loss factors can be looked up. LocalVolts prices spot as AEMO's regional price × the marginal loss factor of the site's transmission node (`TNI`) × the distribution loss factor of its `DLF` code, both published by AEMO each financial year. See [Loss factors](#loss-factors).
+
+- Five diagnostic entities are added: Transmission Node Identifier (`TNI`), NMI, Network Service Provider (`LNSP`), Meter Data Provider (`MDP`) and Jurisdiction.
+- Transmission Node Identifier and NMI are site specific: disabled by default, never logged and redacted from Download diagnostics, like the DLF code. Enable them on the device page to read them.
+- Network Service Provider, Meter Data Provider and Jurisdiction are enabled by default.
+
+No entities are removed or renamed. A restart is required.
+
 ## Upgrading to 2.12.0
 
 - **Detailed forecast (#51):** Current Buy Rate, Current Sell Rate and the eight `$/kWh` single signal sensors carry `detailedForecast`, every field LocalVolts returned for each forward interval of their direction, unrounded and in the API's own units, current interval first. `NMI` is dropped from each row. It is excluded from the recorder, so price history is unchanged, but it adds about 250 KB per entity to what each open dashboard receives on a poll. See [Detailed forecast](#detailed-forecast).
