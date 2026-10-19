@@ -61,7 +61,8 @@ All entities are grouped under one device named `LocalVolts v2`. The device name
 | Data Age | Diagnostic. Minutes since LocalVolts last rebuilt the data, from the newest `lastUpdate` on the forecast rows, with that time in `source_updated`. Settling rows are left out: LocalVolts restamps elapsed rows as meter data arrives, and the current interval when it turns `Exp`, so they read fresher than the forecast. A poll can succeed while returning rows that have not been refreshed for hours, and the rate sensors keep moving through the old forecast, so this is the sensor to alert on. Its `status` attribute names the cause: `ok`, `provider_stale` (fetches succeed but LocalVolts has not rebuilt the rows for over 60 minutes; LocalVolts rebuilds at about :02 and :32, so up to about 30 minutes is normal), `fetch_failing` (the last fetch failed and older data is being served, with `consecutive_failures` and `last_error`), or `no_data`. It updates on each poll, so it moves in steps of the poll interval. |
 | NEM Region | Diagnostic. The NEM region from the customer metadata endpoint, read once at start up. Unknown until the read succeeds. |
 | Read Type | Diagnostic. The metering class, for example `Remote Interval`, from the same read. |
-| Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix | Diagnostic, disabled by default. The matching fields from the same read. |
+| Distribution Loss Factor Code, Network Tariff Code, Circuit, Meter Suffix, Transmission Node Identifier, NMI | Diagnostic, disabled by default, never logged and redacted from Download diagnostics. The matching fields from the same read (`DLF`, `Tariff`, `Circuit`, `Suffix`, `TNI`, `NMI`). |
+| Network Service Provider, Meter Data Provider, Jurisdiction | Diagnostic. `LNSP`, `MDP` and `Jurisdiction` from the same read. |
 | Forecast Chart camera | Cached two panel PNG. Prices on top, volumes and matched share below. |
 
 ### Cost accounting
@@ -342,9 +343,18 @@ Every value in an interval row is paired with a unit string. The integration rea
 
 ### Customer metadata
 
-The integration reads `GET /v2/customer/metadata` once, then retries no sooner than hourly if that fails. It keeps six fields, `Region`, `ReadType`, `DLF`, `Tariff`, `Circuit` and `Suffix`, and discards the rest of the response where it is read (`NMI`, `LNSP`, `TNI`, `MDP` and `Jurisdiction`), so those never reach a sensor, attribute, diagnostic or log. Where the account has several circuits, the distinct values are joined in the order first seen.
+The integration reads `GET /v2/customer/metadata` once, then retries no sooner than hourly if that fails. It keeps every documented field. `DLF` and `TNI` identify the site's loss factors: AEMO publishes a distribution loss factor per `DLF` code and a marginal loss factor per transmission node (`TNI`) each financial year, and LocalVolts prices spot as AEMO's regional price times both. See [Loss factors](#loss-factors). Where the account has several circuits, the distinct values are joined in the order first seen.
 
 `DLF`, `Tariff`, `Circuit` and `Suffix` narrow a site, so their sensors are diagnostic and disabled by default. Enable them from the device page if you want them. Their values are not written to any log. A failing metadata endpoint leaves all six sensors unknown and does not affect pricing.
+
+### Loss factors
+
+LocalVolts prices the spot part of each interval as AEMO's regional price times two loss factors, both published by AEMO for each financial year (1 July to 30 June):
+
+- the **marginal loss factor** of the site's transmission node, from AEMO's *Marginal Loss Factors* report, looked up by the Transmission Node Identifier entity (`TNI`);
+- the **distribution loss factor** of the site's DLF code, from AEMO's *Distribution Loss Factors* publication, looked up by the Distribution Loss Factor Code entity (`DLF`).
+
+Export spot is AEMO price × MLF × DLF, and import spot is the same × 1.1 (GST). Both entities are disabled by default; enable them on the device page to read them.
 
 ## Settlement quality and what the totals are worth
 
