@@ -381,6 +381,12 @@ For more, use **Download diagnostics** on the integration's page. It reports the
 
 To ask the API directly, outside Home Assistant, set `LOCALVOLTS_API_KEY` and `LOCALVOLTS_PARTNER_ID` and run `python scripts/check_api_freshness.py`. It checks the host without credentials first, then the interval endpoint with them, and on a failure prints the HTTP status, the server and Cloudflare ray id and the start of the body, so a Cloudflare refusal, a rejected key and a gateway fault read differently. It exits 0 when fresh, 3 when reachable but stale, and 1 on an error.
 
+## Upgrading to 2.13.1
+
+- **Installs without matplotlib (#63, #64):** `matplotlib` is no longer an install requirement, so the integration installs on Home Assistant OS on a Raspberry Pi 4 (64-bit ARM, Python 3.14), where PyPI has no prebuilt `matplotlib` wheel. Where `matplotlib` is available the Forecast chart camera works as before. Where it is not, the price sensors load, the camera is skipped and one warning in the log says why.
+
+No entities are removed or renamed. A restart is required.
+
 ## Upgrading to 2.13.0
 
 Every documented field from LocalVolts' customer metadata is now published, so a site's loss factors can be looked up. LocalVolts prices spot as AEMO's regional price × the marginal loss factor of the site's transmission node (`TNI`) × the distribution loss factor of its `DLF` code, both published by AEMO each financial year. See [Loss factors](#loss-factors).
