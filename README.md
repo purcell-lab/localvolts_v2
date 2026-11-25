@@ -220,6 +220,8 @@ If your optimizer sums every entity assigned to a field rather than choosing bet
 
 The camera entity renders the forecast locally in Home Assistant and caches the PNG in memory. The chart is [at the top of this page](#localvolts-v2-for-home-assistant).
 
+The chart needs matplotlib, which is optional. PyPI has no matplotlib wheel for some hosts, such as Home Assistant OS on a Raspberry Pi 4, so the integration no longer asks for it at install. Where matplotlib is installed the chart works as before. Where it is not, the integration still loads with every sensor, the Forecast Chart camera is left out, and one warning in the log says the chart needs matplotlib. An existing Forecast Chart entity then shows as unavailable and can be deleted.
+
 The upper panel carries the six price signals. Buy is warm and sell is cool, so direction reads from colour. The effective rate is solid and the two legs it blends are dashed and dotted, so the blend reads from line style: each effective rate sits between its own spot and matched legs, pulled toward whichever one took more of the interval. The flex up incentive rides on the same axis, thin and grey, because it is also a c/kWh rate.
 
 The lower panel carries the remaining forecasts across twin axes, power in kW on the left and matched share as a percentage on the right.
@@ -548,6 +550,8 @@ Run the test suite from the repository root:
 pip install pytest pytest-asyncio pytest-homeassistant-custom-component "matplotlib>=3.7.0" pyyaml
 pytest tests/ -v
 ```
+
+matplotlib is needed only for the `test_forecast_chart_*` tests. CI also runs the rest of the suite with matplotlib uninstalled, to check the integration still loads without it.
 
 The suite covers the config flow paths, coordinator behaviour including the stale data fallback and optional v1 handling, and sensor state and attributes. It passes against Home Assistant 2026.8.0. It does not exercise a live Home Assistant instance with real LocalVolts credentials, so verify the integration in your own environment before relying on it.
 
