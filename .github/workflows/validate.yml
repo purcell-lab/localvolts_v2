@@ -23,6 +23,12 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v
 
+      - name: Run tests without matplotlib
+        run: |
+          pip uninstall -y matplotlib
+          pytest tests/ -v --ignore-glob='tests/test_forecast_chart_*'
+          pip install "matplotlib>=3.7.0"
+
       - name: Install mypy
         run: pip install mypy homeassistant-stubs
 

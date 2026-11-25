@@ -1,7 +1,7 @@
 """LocalVolts v2 Home Assistant integration."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 import logging
 from math import ceil
@@ -34,12 +34,43 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CAMERA]
 
+# The forecast chart camera is the only part of the integration that needs
+# matplotlib. It is not a manifest requirement because PyPI has no matplotlib
+# wheel for some Home Assistant hosts, such as HA OS on a Raspberry Pi 4
+# (aarch64 musl), and a hard requirement there stops the whole integration
+# installing (#63). When matplotlib is missing the camera is skipped instead.
+_CHART_SKIP_LOGGED = "chart_skip_logged"
+
+
+def _chart_dependency_available() -> bool:
+    """Return True when matplotlib imports. Blocking, so run it in the executor."""
+    try:
+        import matplotlib  # noqa: F401, PLC0415
+    except ImportError:
+        return False
+    return True
+
+
+async def _async_platforms(hass: HomeAssistant) -> list[Platform]:
+    """Return the platforms to set up, leaving out the chart without matplotlib."""
+    if await hass.async_add_executor_job(_chart_dependency_available):
+        return list(PLATFORMS)
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if not domain_data.get(_CHART_SKIP_LOGGED):
+        domain_data[_CHART_SKIP_LOGGED] = True
+        _LOGGER.warning(
+            "The LocalVolts forecast chart needs matplotlib, which is not installed;"
+            " the chart camera is skipped and every sensor still works"
+        )
+    return [platform for platform in PLATFORMS if platform != Platform.CAMERA]
+
 
 @dataclass(slots=True)
 class LocalVoltsEntryData:
     """Runtime data retained on a LocalVolts config entry."""
 
     coordinator: LocalVoltsCoordinator
+    platforms: list[Platform] = field(default_factory=lambda: list(PLATFORMS))
 
 
 LocalVoltsConfigEntry = ConfigEntry[LocalVoltsEntryData]
@@ -256,8 +287,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -
     coordinator.config_entry = entry
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = LocalVoltsEntryData(coordinator=coordinator)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    platforms = await _async_platforms(hass)
+    entry.runtime_data = LocalVoltsEntryData(coordinator=coordinator, platforms=platforms)
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
     _async_register_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
@@ -265,7 +297,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -
 
 async def async_unload_entry(hass: HomeAssistant, entry: LocalVoltsConfigEntry) -> bool:
     """Unload platforms and remove shared services after the last entry unloads."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    platforms = entry.runtime_data.platforms
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, platforms):
         remaining = [
             config_entry
             for config_entry in hass.config_entries.async_entries(DOMAIN)
